@@ -1,6 +1,6 @@
 % Flyalyzer, Michael Rauscher 2019
 
-function flyalyzer()
+function flyalyzer(vidname)
 %% state variable declaration
     import java.awt.Robot;
     mouse = Robot;
@@ -128,7 +128,7 @@ function flyalyzer()
         'Save to Disk','Position',[125 0 125 45],'Callback',@savedata);
 
     loadbutton = uicontrol(cf,'Style','pushbutton','String',...
-        'Load File','Position',[0 0 250 500],'Callback',@loadvid);
+        'Load File','Position',[0 0 250 500],'Callback',@loadbtn);
     
     vidpanel = uipanel(cf,'Title',' ','Units','pixels',...
         'Position',[63 430 187 70],'BorderType','none','Visible','off');
@@ -518,7 +518,17 @@ function flyalyzer()
     abduadjust = uicontrol(abdtab,'Style', 'slider',...
         'Value',state.track.abd.utheta,'Position', [3 6 30 30],...
         'Min',90,'Max',180,'SliderStep',[1/90, 1/9],...
-        'Callback',@updateabdtracking);    
+        'Callback',@updateabdtracking);
+    
+    
+%% input argument handling
+if nargin>0
+    [vidfilepath,vidfilename,ext]=fileparts(vidname);
+    if isempty(vidfilepath);vidfilepath = pwd;end
+    if exist(vidname,'file') == 2
+        loadvid([vidfilename ext],vidfilepath);
+    end
+end
 
 %% main support functions
 
@@ -713,93 +723,109 @@ function flyalyzer()
             
         switch b
             case exportbutton
-                assignin('base','fly',fly);
+                badvarname = true;
+                while badvarname
+                    varname = inputdlg('Enter name for workspace variable:','',[1 35],{'fly'});
+                    if isempty(varname)
+                        return
+                    end
+                    varname = varname{1};
+                    badvarname = ~strcmp(varname,genvarname(varname));
+                end
+                basevars = evalin('base','who');
+                if any(contains(basevars,varname))
+                    over=questdlg('Overwrite existing workspace variable?','','Yes','No','No');
+                    if strcmp(over,'No');return;end
+                end
+                assignin('base',varname,fly);
             case savebutton
                 savefilename = [fullfile(state.vid.path,state.vid.basename) '_PROC'];
 %                 savefilename = [savefilename '_flyalyzer' datestr(now,'_yyyymm_hhMMSS_PROC')];
-                save(savefilename,'fly')
+                uisave('fly',savefilename)
         end
     end
 
-    function loadvid(~,~)
+    function loadbtn(~,~)
         [fname,pname,fix] = uigetfile({'*.avi;*.mp4'},'Select Video file',state.vid.path);
-        if fix ~= 0
-            if strcmp(state.vid.vtimer.Running,'on') 
-                stop(state.vid.vtimer);
-                playpause.String = '>';
-            end
-            state.vid.path = pname;
-            [~,state.vid.basename,state.vid.ext] = fileparts(fname);
-            vr = VideoReader(fullfile(pname,fname));
-            
-            f = 0;
-            timeix = [];
-            numframes = 0;
-%             fprintf('Building Frame Index...');
-            while hasFrame(vr)
-                f = f+1;
-                timeix(f) = vr.CurrentTime;
-                numframes = numframes+1;
-                readFrame(vr);
-            end
-            progress.Max = numframes;
-            progress.SliderStep = [1/(numframes-1) 1/(numframes-1)];
-            
-            state.vid.vreader = vr;
-            state.vid.timeix = timeix;
-            state.vid.nframes = numframes;
-            state.vid.width = vr.Width;
-            state.vid.height = vr.Height;
-            fps = round(vr.FrameRate);%give an even integer
-            state.vid.fps = fps;
-            vr.CurrentTime = timeix(1);
-            state.vid.curframe = readFrame(vr);
-            state.vid.dispframe = state.vid.curframe;
-            vr.CurrentTime = timeix(1);
-            set(fpsdisplay,'String',[num2str(state.vid.fps) 'FPS']);
-            pos = vf.Position;            
-            pos(4) = 500;
-            pos(3) = 500*state.vid.width/state.vid.height;
-            vf.Name = state.vid.basename;
-            vf.Position = pos;
-            vf.Visible = 'on';
-            state.vid.ax.Position = [0 0 1 1];
-            
-            trackwingcheck.Value = false;
-            trackheadcheck.Value = false;
-            trackabdcheck.Value = false;
-            updateacquisition(trackwingcheck,[]);
-            updateacquisition(trackheadcheck,[]);
-            updateacquisition(trackabdcheck,[]);
-            updatewingtracking(lockwingscheck,[]);
-            
-            vidpanel.Visible = 'on';
-            setuppanel.Visible = 'on';
-            set(loadbutton,'Position',[3 432 60 65]);
-            set(headrootxadjust,'Min',0,'Max',state.vid.width,'Value',0,...
-                'SliderStep',[1/state.vid.width 10/state.vid.width]);
-            set(headrootyadjust,'Min',0,'Max',state.vid.height,'Value',0,...
-                'SliderStep',[1/state.vid.width 10/state.vid.height]);
-            set(abdrootxadjust,'Min',0,'Max',state.vid.width,'Value',0,...
-                'SliderStep',[1/state.vid.width 10/state.vid.width]);
-            set(abdrootyadjust,'Min',0,'Max',state.vid.height,'Value',0,...
-                'SliderStep',[1/state.vid.width 10/state.vid.height]);
-            headsetdisplay.String = '';
-            abdsetdisplay.String = '';
-            
-            trackpanel.Visible = 'off';
+        if fix == 0;return;end
+        loadvid(fname,pname);
+    end
 
-            state.track.wing.angle = nan(2,numframes);
-            state.track.head.angle = nan(1,numframes);
-            state.track.abd.angle = nan(1,numframes);
-            state.track.ts = linspace(0,numframes/fps,numframes);
-            state.track.head.root = [];
-            state.track.abd.root = [];
-            state.showdata = false;
-            if strcmp(tf.Visible,'on');tf.Visible = 'off';end
-            setframeix(1);
-
+    function loadvid(fname,pname)        
+        if strcmp(state.vid.vtimer.Running,'on')
+            stop(state.vid.vtimer);
+            playpause.String = '>';
         end
+        state.vid.path = pname;
+        [~,state.vid.basename,state.vid.ext] = fileparts(fname);
+        vr = VideoReader(fullfile(pname,fname));
+        
+        f = 0;
+        timeix = [];
+        numframes = 0;
+        %             fprintf('Building Frame Index...');
+        while hasFrame(vr)
+            f = f+1;
+            timeix(f) = vr.CurrentTime;
+            numframes = numframes+1;
+            readFrame(vr);
+        end
+        progress.Max = numframes;
+        progress.SliderStep = [1/(numframes-1) 1/(numframes-1)];
+        
+        state.vid.vreader = vr;
+        state.vid.timeix = timeix;
+        state.vid.nframes = numframes;
+        state.vid.width = vr.Width;
+        state.vid.height = vr.Height;
+        fps = round(vr.FrameRate);%give an even integer
+        state.vid.fps = fps;
+        vr.CurrentTime = timeix(1);
+        state.vid.curframe = readFrame(vr);
+        state.vid.dispframe = state.vid.curframe;
+        vr.CurrentTime = timeix(1);
+        set(fpsdisplay,'String',[num2str(state.vid.fps) 'FPS']);
+        pos = vf.Position;
+        pos(4) = 500;
+        pos(3) = 500*state.vid.width/state.vid.height;
+        vf.Name = state.vid.basename;
+        vf.Position = pos;
+        vf.Visible = 'on';
+        state.vid.ax.Position = [0 0 1 1];
+        
+        trackwingcheck.Value = false;
+        trackheadcheck.Value = false;
+        trackabdcheck.Value = false;
+        updateacquisition(trackwingcheck,[]);
+        updateacquisition(trackheadcheck,[]);
+        updateacquisition(trackabdcheck,[]);
+        updatewingtracking(lockwingscheck,[]);
+        
+        vidpanel.Visible = 'on';
+        setuppanel.Visible = 'on';
+        set(loadbutton,'Position',[3 432 60 65]);
+        set(headrootxadjust,'Min',0,'Max',state.vid.width,'Value',0,...
+            'SliderStep',[1/state.vid.width 10/state.vid.width]);
+        set(headrootyadjust,'Min',0,'Max',state.vid.height,'Value',0,...
+            'SliderStep',[1/state.vid.width 10/state.vid.height]);
+        set(abdrootxadjust,'Min',0,'Max',state.vid.width,'Value',0,...
+            'SliderStep',[1/state.vid.width 10/state.vid.width]);
+        set(abdrootyadjust,'Min',0,'Max',state.vid.height,'Value',0,...
+            'SliderStep',[1/state.vid.width 10/state.vid.height]);
+        headsetdisplay.String = '';
+        abdsetdisplay.String = '';
+        
+        trackpanel.Visible = 'off';
+        
+        state.track.wing.angle = nan(2,numframes);
+        state.track.head.angle = nan(1,numframes);
+        state.track.abd.angle = nan(1,numframes);
+        state.track.ts = linspace(0,numframes/fps,numframes);
+        state.track.head.root = [];
+        state.track.abd.root = [];
+        state.showdata = false;
+        if strcmp(tf.Visible,'on');tf.Visible = 'off';end
+        setframeix(1);
     end
     function playctrl(h,e)
         switch h
