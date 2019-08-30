@@ -1,3 +1,3 @@
 # Flyalyzer
 
-Flyalyzer is a self-contained MATLAB program for extracting kinematic parameters from videos of insects in tethered flight.
+Flyalyzer is a self-contained MATLAB program for kinematic analysis of insects in tethered flight.
