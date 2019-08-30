@@ -722,7 +722,7 @@ function flyalyzer()
     end
 
     function loadvid(~,~)
-        [fname,pname,fix] = uigetfile({'*.avi;*.mp4'},'Select Video file');
+        [fname,pname,fix] = uigetfile({'*.avi;*.mp4'},'Select Video file',state.vid.path);
         if fix ~= 0
             if strcmp(state.vid.vtimer.Running,'on') 
                 stop(state.vid.vtimer);
