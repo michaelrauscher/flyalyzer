@@ -38,6 +38,7 @@ function flyalyzer(vidname)
     colors = colorschemes(1);
     
     state = struct;
+    state.closing = false;
     state.showdata = false;
     state.invertbw = false;
     
@@ -92,6 +93,8 @@ function flyalyzer(vidname)
     state.track.wing.root = [];
     state.track.wing.mask = [];
     state.track.wing.poly = [];
+    state.track.wing.ap = [25 25];
+    state.track.wing.ml = [50 50];
     state.track.wing.thresh = [.1 .1];
     state.track.wing.norm = 2;
     state.track.wing.offset = [80 80];
@@ -115,7 +118,8 @@ function flyalyzer(vidname)
     state.vid.ax = gca;
     
     tf = figure('Name','Kinematic Trace','NumberTitle','off','Visible','off',...
-    'MenuBar','none','Resize','off','Position',[966 175 500 500]);
+    'MenuBar','none','Resize','off','Position',[966 175 500 500],...
+    'CloseRequestFcn',@closecleanup);
     datax = axes(tf);
     lines = line(datax);
 
@@ -264,11 +268,11 @@ function flyalyzer(vidname)
         'Clear Data','Position',[180 1 63 24],'Callback',@updateacquisition);
         
     wingap1adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',25,'Position', [3 173 20 20],...
+        'Value',state.track.wing.ap(1),'Position', [3 173 20 20],...
         'Min',0,'Max',100,'SliderStep',[1/100, 1/100],...
         'Callback',@updatewingtracking);
     wingap2adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',25,'Position', [128 173 20 20],...
+        'Value',state.track.wing.ap(2),'Position', [128 173 20 20],...
         'Min',0,'Max',100,'SliderStep',[1/100, 1/100],...
         'Callback',@updatewingtracking);
     wingap1setdisplay = uicontrol(wingtab,'Style','edit','String',...
@@ -279,11 +283,11 @@ function flyalyzer(vidname)
         'Position',[148 173 95 20],'Enable','off');
     
     wingml1adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',50,'Position', [3 152 20 19],...
+        'Value',state.track.wing.ml(1),'Position', [3 152 20 19],...
         'Min',0,'Max',100,'SliderStep',[1/100, 1/100],...
         'Callback',@updatewingtracking);
     wingml2adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',50,'Position', [128 152 20 19],...
+        'Value',state.track.wing.ml(2),'Position', [128 152 20 19],...
         'Min',0,'Max',100,'SliderStep',[1/100, 1/100],...
         'Callback',@updatewingtracking);
     wingml1setdisplay = uicontrol(wingtab,'Style','edit','String',...
@@ -693,12 +697,29 @@ end
         set(state.vid.ax,'TickLength',[0 0]);
     end
 %% program and play control functions
-    function closecleanup(~,~)
+    function closecleanup(h,~)
+        if h==tf && ~state.closing
+            %don't actually close the plot window unless we're actually
+            %closing the program
+            tf.Visible = 'off';
+            plotwingcheck.Value = false;
+            plotheadcheck.Value = false;
+            plotabdcheck.Value = false;
+            updateacquisition(plotwingcheck,[]);
+            updateacquisition(plotheadcheck,[]);
+            updateacquisition(plotabdcheck,[]);
+            return
+        else
+            %which we do by setting this flag and then asking for the close
+            %function again
+            state.closing = true;
+            closereq
+        end
+        %stop the timer in case the video is playing
         stop(state.vid.vtimer);
-        drawnow;
+        drawnow;%clear the java event stack to force wait for timer stop
         try delete(vf);catch;end
         try delete(tf);catch;end
-        closereq
     end
 
     function savedata(b,~)
@@ -997,7 +1018,9 @@ end
             case overlaywingscheck
                 state.track.wing.show.thresh = w.Value;
             case lockwingscheck
+                if state.track.wing.lock==w.Value;return;end %bound check so we don't flip something that doesn't need flipped
                 state.track.wing.lock = w.Value;
+                wingml1adjust.Value = 100-wingml1adjust.Value;
                 if state.track.wing.lock
                     enset = 'off';
                     tosync = {wingml1adjust,wingap1adjust,wingt1adjust,...
@@ -1021,22 +1044,31 @@ end
             case wingnormdropdown
                 state.track.wing.norm = w.Value;
             case wingml1adjust
-                ml = 100-w.Value;
-                wingml1setdisplay.String = [num2str((100-ml)) '% rootML'];
+                ml = w.Value;
                 if state.track.wing.lock
-                    wingml2adjust.Value = 100-ml;
-                    wingml2setdisplay.String = [num2str((100-ml)) '% rootML'];
+                    state.track.wing.ml(2) = ml;
+                    wingml2adjust.Value = ml;
+                    wingml2setdisplay.String = [num2str((ml)) '% rootML'];
+                else
+                    ml = 100-ml;
                 end
+                state.track.wing.ml(1) = ml;
+                wingml1setdisplay.String = [num2str((ml)) '% rootML'];
+            
             case wingml2adjust
+                state.track.wing.ml(2) = w.Value;
                 wingml2setdisplay.String = [num2str(w.Value) '% rootML'];
             case wingap1adjust
                 ap = w.Value;
+                state.track.wing.ap(1) = ap;
                 wingap1setdisplay.String = [num2str(100-ap) '% rootAP'];
                 if state.track.wing.lock
+                    state.track.wing.ap(2) = ap;
                     wingap2adjust.Value = ap;
                     wingap2setdisplay.String = [num2str(100-ap) '% rootAP'];
                 end
             case wingap2adjust
+                state.track.wing.ap(2) = w.Value;
                 wingap2setdisplay.String = [num2str(100-w.Value) '% rootAP'];
             case wingt1adjust
                 state.track.wing.thresh(1) = w.Value;
@@ -1314,10 +1346,6 @@ end
         
         if di==0
             return;
-        elseif ~isvalid(tf)
-            tf = figure('Name','Kinematic Trace','NumberTitle','off',...
-            'MenuBar','none','Resize','off','Position',[800 175 500 500]);
-            datax = axes(tf);
         end
         
         if strcmp(tf.Visible,'off');tf.Visible = 'on';end
@@ -1379,13 +1407,11 @@ end
         ar = double(state.track.abd.root);
         hr = double(state.track.head.root);
         state.track.orientation = atan2d(ar(2)-hr(2),ar(1)-hr(1))-90;
-        d = pdist2(hr,ar,'euclidean');  
-        state.track.wing.ap(1) = round(wingap1adjust.Value*d*.01);
-        state.track.wing.ml(1) = round(wingml1adjust.Value*d*.01);
-        state.track.wing.ap(2) = round(wingap2adjust.Value*d*.01);
-        state.track.wing.ml(2) = round(wingml2adjust.Value*d*.01);
-        ap = state.track.wing.ap;
-        ml = state.track.wing.ml;
+        d = pdist2(hr,ar,'euclidean'); 
+        
+        ap = round(state.track.wing.ap*d*.01);
+        ml = round(state.track.wing.ml*d*.01);
+        
         wc(1) = ar(1)+(ap(1))*sind(state.track.orientation);
         wc(2) = ar(2)-(ap(1))*cosd(state.track.orientation);
         wr(1,1) = wc(1)+(ml(1))*sind(state.track.orientation-90);
