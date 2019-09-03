@@ -5,37 +5,7 @@ function flyalyzer(vidname)
     import java.awt.Robot;
     mouse = Robot;
     
-    % declare color schemes
-    %default scheme
-    colorschemes(1).head = [0 0 255];
-    colorschemes(1).abd = [255 0 255];
-    colorschemes(1).wing = [0 255 0];
-    colorschemes(1).halt = [255 0 0];
-    colorschemes(1).axis = [0 255 255];
-    colorschemes(1).name = 'Default';
-    %monochrome green
-    colorschemes(2).head = [0 255 0];
-    colorschemes(2).abd = [0 255 0];
-    colorschemes(2).wing = [0 255 0];
-    colorschemes(2).halt = [0 255 0];
-    colorschemes(2).axis = [0 255 0];
-    colorschemes(2).name = 'Green';
-    %monochrome amber
-    colorschemes(3).head = [35 30 15];
-    colorschemes(3).abd = [35 30 15];
-    colorschemes(3).wing = [35 30 15];
-    colorschemes(3).halt = [35 30 15];    
-    colorschemes(3).axis = [35 30 15];
-    colorschemes(3).name = 'Amber';
-    %monochrome red
-    colorschemes(4).head = [255 0 0];
-    colorschemes(4).abd = [255 0 0];
-    colorschemes(4).wing = [255 0 0];
-    colorschemes(4).halt = [255 0 0];    
-    colorschemes(4).axis = [255 0 0];
-    colorschemes(4).name = 'Red';
-    
-    colors = colorschemes(1);
+    colors = getcolors(1);
     
     state = struct;
     state.closing = false;
@@ -222,7 +192,7 @@ function flyalyzer(vidname)
     trackheadcheck = uicontrol(trackpanel,'Style', 'checkbox',...
         'Position', [110 25 20 20],'Callback',@updateacquisition);
     plotheadcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [110 5 20 20],'Enable','off','Callback',@updateacquisition);
+        'Position', [110 5 20 20],'Callback',@updateacquisition);
     
     trackwingtext = uicontrol(trackpanel,'Style', 'text',...
         'Position', [145 40 50 20],'String','Wings',...
@@ -230,7 +200,7 @@ function flyalyzer(vidname)
     trackwingcheck = uicontrol(trackpanel,'Style', 'checkbox',...
         'Position', [155 25 20 20],'Callback',@updateacquisition);
     plotwingcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [155 5 20 20],'Enable','off','Callback',@updateacquisition);
+        'Position', [155 5 20 20],'Callback',@updateacquisition);
     
     trackabdtext = uicontrol(trackpanel,'Style', 'text',...
         'Position', [187 40 50 20],'String','Abdomen',...
@@ -238,7 +208,7 @@ function flyalyzer(vidname)
     trackabdcheck = uicontrol(trackpanel,'Style', 'checkbox',...
         'Position', [200 25 20 20],'Callback',@updateacquisition);
     plotabdcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [200 5 20 20],'Enable','off','Callback',@updateacquisition);
+        'Position', [200 5 20 20],'Callback',@updateacquisition);
     
 %% wing tracking ui init
 
@@ -284,11 +254,11 @@ function flyalyzer(vidname)
     
     wingml1adjust = uicontrol(wingtab,'Style', 'slider',...
         'Value',state.track.wing.ml(1),'Position', [3 152 20 19],...
-        'Min',0,'Max',100,'SliderStep',[1/100, 1/100],...
+        'Min',0,'Max',100,'SliderStep',[.5/100, .5/100],...
         'Callback',@updatewingtracking);
     wingml2adjust = uicontrol(wingtab,'Style', 'slider',...
         'Value',state.track.wing.ml(2),'Position', [128 152 20 19],...
-        'Min',0,'Max',100,'SliderStep',[1/100, 1/100],...
+        'Min',0,'Max',100,'SliderStep',[.5/100, .5/100],...
         'Callback',@updatewingtracking);
     wingml1setdisplay = uicontrol(wingtab,'Style','edit','String',...
         [num2str(wingml1adjust.Value) '% rootML'],...
@@ -591,13 +561,13 @@ end
                 r = wing.extent(1)+wing.offset(1);
                 pt2(1) = wing.root(1,1)+r*cosd(angle1);
                 pt2(2) = wing.root(1,2)+r*sind(angle1);
-                insline = [wing.root(1,:) pt2];
+                wlineL = [wing.root(1,:) pt2];
                 [angle2,pts2,bw2] = trackborder(img,wing.mask(:,:,2),wing.root(2,:),wing.thresh(2),wing.norm,wing.npts(2),'upper');
                 angle2 = wrapTo360(angle2);
                 r = wing.extent(2)+wing.offset(2);
                 pt2(1) = wing.root(2,1)+r*cosd(angle2);
                 pt2(2) = wing.root(2,2)+r*sind(angle2);
-                insline = [insline; wing.root(2,:) pt2];            
+                wlineR = [wing.root(2,:) pt2];           
                 
                 %record values (switch from y-inverted computer graphics
                 %coordinates to conventional coordinates)
@@ -605,19 +575,22 @@ end
                 
                 % draw thresh
                 if wing.show.thresh
-                    out = overlaythresh(out,colors.wing./2,bw1);
-                    out = overlaythresh(out,colors.wing./2,bw2);
+                    out = overlaythresh(out,colors.wingL./2,bw1);
+                    out = overlaythresh(out,colors.wingR./2,bw2);
                 end
                 
-                if ~any(isnan(insline))
-                    out = insertShape(out,'Line',insline,'color',colors.wing);
+                if ~any(isnan([wlineL wlineR]))
+                    out = insertShape(out,'Line',wlineL,'color',colors.wingL);
+                    out = insertShape(out,'Line',wlineR,'color',colors.wingR);
+
                     if wing.show.pts
-                        out = insertMarker(out,pts1,'+','color',colors.wing);
-                        out = insertMarker(out,pts2,'+','color',colors.wing);
+                        out = insertMarker(out,pts1,'+','color',colors.wingL);
+                        out = insertMarker(out,pts2,'+','color',colors.wingR);
                     end
                 end
                 if wing.show.poly
-                    out = insertShape(out,'Polygon',wing.poly,'color',colors.wing);
+                    out = insertShape(out,'Polygon',wing.poly(1,:),'color',colors.wingL);
+                    out = insertShape(out,'Polygon',wing.poly(2,:),'color',colors.wingR);
                 end
             end
             
@@ -688,7 +661,8 @@ end
             out = insertMarker(out,state.track.abd.root,'s','color',colors.abd);
         end
         if ~isempty(state.track.wing.root) && trackwingcheck.Value
-            out = insertMarker(out,state.track.wing.root,'s','color',colors.wing);
+            out = insertMarker(out,state.track.wing.root(1,:),'s','color',colors.wingL);
+            out = insertMarker(out,state.track.wing.root(2,:),'s','color',colors.wingR);
         end
         state.vid.dispframe = out;
     end    
@@ -755,21 +729,22 @@ end
         fly.fps = state.vid.fps;
         fly.timestamps = state.track.ts;
         if isfield(state.track,'orientation')
-            %transform appropriately (abdroot->headroot)
-            fly.bodyaxis = 360-(wrapTo360(state.track.orientation-90));
+            %use body orientation to transform kinematics into body-centric
+            %coordinates rather than image-centric coordinates
+            bodycorrect = state.track.orientation;
         end
         if trackheadcheck.Value
-            fly.head.angle = state.track.head.angle;
+            fly.head.angle = wrapTo360(state.track.head.angle+bodycorrect);
             fly.head.root = state.track.head.root;
         end
         if trackwingcheck.Value
-            fly.wing.angleL=state.track.wing.angle(1,:);
-            fly.wing.rootL = state.track.wing.root(1,:);
-            fly.wing.angleR=state.track.wing.angle(2,:);
-            fly.wing.rootR = state.track.wing.root(2,:);
+            fly.wingL.angle=wrapTo360(state.track.wing.angle(1,:)+bodycorrect);
+            fly.wingL.root = state.track.wing.root(1,:);
+            fly.wingR.angle=wrapTo360(state.track.wing.angle(2,:)+bodycorrect);
+            fly.wingR.root = state.track.wing.root(2,:);
         end
         if trackabdcheck.Value
-            fly.abd.angle = state.track.abd.angle;
+            fly.abd.angle = wrapTo360(state.track.abd.angle);
             fly.abd.root = state.track.abd.root;
         end
     end
@@ -911,12 +886,8 @@ end
            case c
                tabchanged = true;
                ix = find([c{:}]==a);
-               if a.Value
-                   p{ix}.Enable = 'On';
-               else
-                   p{ix}.Enable = 'Off';
-                   p{ix}.Value = false;
-               end
+               %turn plotting on and off with tracking by default
+               p{ix}.Value = a.Value;
                updateacquisition(p{ix},[]);
            case p
                b = 0;
@@ -1320,26 +1291,39 @@ end
         titles = {};
         pcolors = {};
         di = 0;
-        if plotheadcheck.Value && (trackheadcheck.Value && ~isempty(state.track.head.angle))
+        correct = state.track.orientation;
+        if plotheadcheck.Value
             di = di+1;
-            data = [data; state.track.head.angle];
+            seg = wrapTo360(state.track.head.angle+correct);
+            jumpix=abs(diff(seg))>180;
+            seg(jumpix) = nan;
+            data = [data; seg];            
             titles{di} = 'Head';
             pcolors{di} = colors.head./255;
         end
-        if plotwingcheck.Value && (trackwingcheck.Value && ~isempty(state.track.wing.angle))
+        if plotwingcheck.Value
             di = di+1;
-            data = [data; state.track.wing.angle(1,:)];
+            seg = wrapTo360(state.track.wing.angle(1,:)+correct);
+            jumpix=abs(diff(seg))>180;
+            seg(jumpix) = nan;
+            data = [data; seg];
             titles{di} = 'Left Wing';
-            pcolors{di} = colors.wing./255;
+            pcolors{di} = colors.wingL./255;
             
             di = di+1;
-            data = [data; state.track.wing.angle(2,:)];
+            seg = wrapTo360(state.track.wing.angle(2,:)+correct);
+            jumpix=abs(diff(seg))>180;
+            seg(jumpix) = nan;
+            data = [data; seg];
             titles{di} = 'Right Wing';
-            pcolors{di} = colors.wing./255;
+            pcolors{di} = colors.wingR./255;
         end
-        if plotabdcheck.Value && (trackabdcheck.Value && ~isempty(state.track.abd.angle))
+        if plotabdcheck.Value
             di = di+1;
-            data = [data; state.track.abd.angle];
+            seg = wrapTo360(state.track.abd.angle+correct);
+            jumpix=abs(diff(seg))>180;
+            seg(jumpix) = nan;
+            data = [data; seg];
             titles{di} = 'Abdomen';
             pcolors{di} = colors.abd./255;
         end
@@ -1593,5 +1577,29 @@ end
     end
     function rgb = overlaythresh(rgb,color,bw)        
         rgb = imoverlay(rgb,bw,color./255);
+    end
+    function col = getcolors(ix)
+        % declare color schemes
+        i = 0; %have an index to manually iterate for easier copy/pasting
+        
+        %default scheme (Colors from ColorBrewer.org by Cynthia Brewer)
+        i = i+1;
+        colorschemes(i).head = [55 126 184];
+        colorschemes(i).abd = [152 78 163];
+        colorschemes(i).wingL = [77 175 74];
+        colorschemes(i).wingR = [228 26 28];
+        colorschemes(i).axis = [255 127 0];
+        colorschemes(i).name = 'Default';
+        
+        %RGB scheme (After Kinefly by Steve Safarik)
+        i = i+1;
+        colorschemes(i).head = [0 255 255];
+        colorschemes(i).abd = [255 0 255];
+        colorschemes(i).wingL = [0 255 0];
+        colorschemes(i).wingR = [255 0 0];
+        colorschemes(i).axis = [0 0 255];
+        colorschemes(i).name = 'RGB'; 
+        
+        col = colorschemes(ix);
     end
 end
