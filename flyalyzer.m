@@ -59,6 +59,26 @@ function flyalyzer(vidname)
     state.track.abd.show.thresh = false;
     state.track.abd.show.poly = true;
     
+    state.track.leg.angle = [];
+    state.track.leg.tip = [];
+    state.track.leg.root = [];
+    state.track.leg.mask = [];
+    state.track.leg.poly = [];
+    state.track.leg.clearborder = true;
+    state.track.leg.borderidx = [];
+    state.track.leg.ap  = 80;
+    state.track.leg.threshint = .4;
+    state.track.leg.threshsize = 150;
+    state.track.leg.norm = 1;
+    state.track.leg.offset = 45;
+    state.track.leg.eccen = 1.75;
+    state.track.leg.extent = 50; 
+    state.track.leg.ltheta = 200;
+    state.track.leg.utheta = 340;
+    state.track.leg.show.pts = true;
+    state.track.leg.show.thresh = true;
+    state.track.leg.show.poly = true;
+    
     state.track.wing.angle = [];  
     state.track.wing.root = [];
     state.track.wing.mask = [];
@@ -75,7 +95,7 @@ function flyalyzer(vidname)
     state.track.wing.lock = true;
     state.track.wing.show.pts = true;
     state.track.wing.show.thresh = true;
-    state.track.wing.show.poly = true;    
+    state.track.wing.show.poly = true;
     
 %% ui figure init
     cf = figure('Name','Flyalyzer','NumberTitle','off',...
@@ -144,6 +164,7 @@ function flyalyzer(vidname)
     wingtab = uitab('Parent', tabstorage, 'Title', 'Wings');
     headtab = uitab('Parent', tabstorage, 'Title', 'Head');
     abdtab = uitab('Parent', tabstorage, 'Title', 'Abdomen');
+    legtab = uitab('Parent', tabstorage,'Title', 'Legs');
     
 %% acquisition control ui init
     
@@ -176,39 +197,47 @@ function flyalyzer(vidname)
         'Pick','Position',[190 82 50 20],'Callback',@updateacquisition);
     
     trackpanel = uipanel(setuppanel,'Units','pixels','Title','Track Body Parts',...
-        'FontWeight','bold','Position',[3 3 243 75],'Visible','off');
+        'FontWeight','bold','Position',[3 3 243 76],'Visible','off');
     
     tracktext = uicontrol(trackpanel,'Style', 'text',...
-        'Position', [7 22 85 20],'String','Enable Tracking:',...
+        'Position', [7 25 40 15],'String','Track:',...
         'HorizontalAlignment','right');
     
     plottext = uicontrol(trackpanel,'Style', 'text',...
-        'Position', [7 2 85 20],'String','Enable Plotting:',...
+        'Position', [7 5 40 15],'String','Plot:',...
         'HorizontalAlignment','right');
     
-    trackheadtext = uicontrol(trackpanel,'Style', 'text',...
-        'Position', [105 40 50 20],'String','Head',...
-        'HorizontalAlignment','left');
-    trackheadcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [110 25 20 20],'Callback',@updateacquisition);
-    plotheadcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [110 5 20 20],'Callback',@updateacquisition);
-    
     trackwingtext = uicontrol(trackpanel,'Style', 'text',...
-        'Position', [145 40 50 20],'String','Wings',...
+        'Position', [55 37 50 20],'String','Wings',...
         'HorizontalAlignment','left');
     trackwingcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [155 25 20 20],'Callback',@updateacquisition);
+        'Position', [65 23 20 20],'Callback',@updateacquisition);
     plotwingcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [155 5 20 20],'Callback',@updateacquisition);
+        'Position', [65 3 20 20],'Callback',@updateacquisition);
+    
+    trackheadtext = uicontrol(trackpanel,'Style', 'text',...
+        'Position', [109 37 50 20],'String','Head',...
+        'HorizontalAlignment','left');
+    trackheadcheck = uicontrol(trackpanel,'Style', 'checkbox',...
+        'Position', [114 23 20 20],'Callback',@updateacquisition);
+    plotheadcheck = uicontrol(trackpanel,'Style', 'checkbox',...
+        'Position', [114 3 20 20],'Callback',@updateacquisition);
     
     trackabdtext = uicontrol(trackpanel,'Style', 'text',...
-        'Position', [187 40 50 20],'String','Abdomen',...
+        'Position', [148 37 50 20],'String','Abdomen',...
         'HorizontalAlignment','left');    
     trackabdcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [200 25 20 20],'Callback',@updateacquisition);
+        'Position', [163 23 20 20],'Callback',@updateacquisition);
     plotabdcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [200 5 20 20],'Callback',@updateacquisition);
+        'Position', [163 3 20 20],'Callback',@updateacquisition);
+    
+    tracklegtext = uicontrol(trackpanel,'Style', 'text',...
+        'Position', [209 37 50 20],'String','Legs',...
+        'HorizontalAlignment','left');    
+    tracklegcheck = uicontrol(trackpanel,'Style', 'checkbox',...
+        'Position', [212 23 20 20],'Callback',@updateacquisition);
+    plotlegcheck = uicontrol(trackpanel,'Style', 'checkbox',...
+        'Position', [212 3 20 20],'Callback',@updateacquisition);
     
 %% wing tracking ui init
 
@@ -254,11 +283,11 @@ function flyalyzer(vidname)
     
     wingml1adjust = uicontrol(wingtab,'Style', 'slider',...
         'Value',state.track.wing.ml(1),'Position', [3 152 20 19],...
-        'Min',0,'Max',100,'SliderStep',[.5/100, .5/100],...
+        'Min',0,'Max',100,'SliderStep',[1/100, 1/100],...
         'Callback',@updatewingtracking);
     wingml2adjust = uicontrol(wingtab,'Style', 'slider',...
         'Value',state.track.wing.ml(2),'Position', [128 152 20 19],...
-        'Min',0,'Max',100,'SliderStep',[.5/100, .5/100],...
+        'Min',0,'Max',100,'SliderStep',[2/100, 2/100],...
         'Callback',@updatewingtracking);
     wingml1setdisplay = uicontrol(wingtab,'Style','edit','String',...
         [num2str(wingml1adjust.Value) '% rootML'],...
@@ -357,7 +386,6 @@ function flyalyzer(vidname)
         'Value',state.track.wing.utheta(2)-360,'Position', [128 26 20 19],...
         'Min',-1,'Max',360,'SliderStep',[1/361, 1/361],...
         'Callback',@updatewingtracking);
-
 %% head tracking ui init 
 
     headmethodtext = uicontrol(headtab,'Style','text','FontWeight','Bold',...
@@ -495,6 +523,76 @@ function flyalyzer(vidname)
         'Min',0,'Max',90,'SliderStep',[1/90, 1/90],...
         'Callback',@updateabdtracking);
 
+%% leg tracking ui init
+    
+    legnormtext = uicontrol(legtab,'Style', 'text','FontWeight','Bold',...
+        'Position', [154 174 90 30],'String','Histogram Normalization');
+
+    legnormdropdown = uicontrol(legtab,'Style','popupmenu','String',...
+        {'none','ROI only','full image'},'Value',state.track.leg.norm,...
+        'Position',[159 151 80 22],'Callback',@updatelegtracking);
+    
+    overlaylegcheck = uicontrol(legtab,'Style','checkbox','String',...
+        'Overlay BW','Value',state.track.leg.show.thresh,...,
+        'Tooltip','Overlay Thresholded ROI',...
+        'Position', [159 129 80 20],'Callback',@updatelegtracking);
+    
+    clearlegbordercheck = uicontrol(legtab,'Style','checkbox','String',...
+        sprintf('Clear Border'),'Value',state.track.leg.clearborder,...,
+        'Tooltip','Do not track blobs with majority of extrema on ROI border',...
+        'Position', [159 102 80 20],'Callback',@updatelegtracking);
+    
+    clearlegsbutton = uicontrol(legtab,'Style','pushbutton','String',...
+        'Clear Data','Position',[159 6 80 50],'Callback',@updateacquisition);    
+    
+    legapsetdisplay = uicontrol(legtab,'Style','edit','String',...
+        [num2str(100-state.track.leg.ap) '% AP'],...
+        'Position',[33 176 120 30],'Enable','off');
+    legapadjust = uicontrol(legtab,'Style', 'slider',...
+        'Value',state.track.leg.ap/100,'Position', [3 176 30 30],...
+        'Min',0,'Max',1,'SliderStep',[1/100, 1/10],...
+        'Callback',@updatelegtracking);    
+
+    legtietdisplay = uicontrol(legtab,'Style','edit','String',...
+        [num2str(state.track.leg.threshint*100) '% threshInt'],...
+        'Position',[33 142 120 30],'Enable','off');
+    legtiadjust = uicontrol(legtab,'Style', 'slider',...
+        'Value',state.track.leg.threshint,'Position', [3 142 30 30],...
+        'Min',0,'Max',1,'SliderStep',[1/100, 1/10],...
+        'Callback',@updatelegtracking);
+    
+    legtssetdisplay = uicontrol(legtab,'Style','edit','String',...
+        [num2str(state.track.leg.threshsize) 'px threshSz'],...
+        'Position',[33 108 120 30],'Enable','off');
+    legtsadjust = uicontrol(legtab,'Style', 'slider',...
+        'Value',state.track.leg.threshsize,'Position', [3 108 30 30],...
+        'Min',0,'Max',1000,'SliderStep',[1/1000, 1/100],...
+        'Callback',@updatelegtracking);    
+    
+    legosetdisplay = uicontrol(legtab,'Style','edit','String',...
+        [num2str(state.track.leg.offset) 'px offset'],...
+        'Position',[33 74 120 30],'Enable','off');
+    legoadjust = uicontrol(legtab,'Style', 'slider',...
+        'Value',state.track.leg.offset,'Position', [3 74 30 30],...
+        'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
+        'Callback',@updatelegtracking);
+    
+    legesetdisplay = uicontrol(legtab,'Style','edit','String',...
+        [num2str(state.track.leg.extent) 'px extent'],...
+        'Position',[33 40 120 30],'Enable','off');
+    legeadjust = uicontrol(legtab,'Style', 'slider',...
+        'Value',state.track.leg.extent,'Position', [3 40 30 30],...
+        'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
+        'Callback',@updatelegtracking);
+    
+    span = state.track.leg.utheta-state.track.leg.ltheta;
+    legspnsetdisplay = uicontrol(legtab,'Style','edit','String',...
+        [num2str(360-span) '° span'],...
+        'Position',[33 6 120 30],'Enable','off');
+    legspnadjust = uicontrol(legtab,'Style', 'slider',...
+        'Value',span,'Position', [3 6 30 29],...
+        'Min',0,'Max',180,'SliderStep',[1/180, 1/180],...
+        'Callback',@updatelegtracking);
     
     
 %% input argument handling
@@ -543,6 +641,7 @@ end
             wing = state.track.wing;
             head = state.track.head;
             abd = state.track.abd;
+            leg = state.track.leg;
             
             %draw body axis
             angle = state.track.orientation;
@@ -654,6 +753,40 @@ end
                 end
             end
         end
+        
+        if tracklegcheck.Value && ~isempty(state.track.leg.poly)
+            [angle,tip,extrema,bw] = tracklegs(img,leg.mask,leg.borderidx,leg.root,leg.threshint,leg.threshsize,legnormdropdown.Value);
+
+            if leg.show.thresh
+                out = overlaythresh(out,colors.leg./2,bw);
+            end
+            if ~all(isnan(extrema))
+                if ~any(isnan(extrema(1,:)))
+                    out = insertShape(out,'Polygon',extrema(1,:),'color',255-colors.leg);
+                    if leg.show.pts
+                        out = insertMarker(out,tip(1,:),'+','color',colors.leg);
+                    end
+                end
+                if ~any(isnan(extrema(2,:)))
+                    out = insertShape(out,'Polygon',extrema(2,:),'color',255-colors.leg);
+                    if leg.show.pts
+                        out = insertMarker(out,tip(2,:),'+','color',colors.leg);
+                    end
+                end         
+            end
+            % record leg orientations
+            state.track.leg.angle(1:2,state.vid.ix) = 360-angle;
+            % now that we're done drawing correct for y-inverted computer
+            % graphics coordinates before saving data;
+            tip(:,2)=size(leg.mask,1)-tip(:,2);
+            state.track.leg.tip(1:2,state.vid.ix)=tip(1,:);
+            state.track.leg.tip(3:4,state.vid.ix)=tip(2,:);
+            
+            if leg.show.poly
+                out = insertShape(out,'Polygon',state.track.leg.poly,'color',colors.leg);
+            end
+        end
+        
         if ~isempty(state.track.head.root)
             out = insertMarker(out,state.track.head.root,'s','color',colors.head);            
         end
@@ -664,6 +797,11 @@ end
             out = insertMarker(out,state.track.wing.root(1,:),'s','color',colors.wingL);
             out = insertMarker(out,state.track.wing.root(2,:),'s','color',colors.wingR);
         end
+        if ~isempty(state.track.leg.root) && tracklegcheck.Value
+            legline = [state.track.leg.root(1,:) state.track.leg.root(2,:)];
+            out = insertShape(out,'Line',legline,'color',colors.leg);
+        end
+        
         state.vid.dispframe = out;
     end    
     function showframe()        
@@ -679,8 +817,10 @@ end
             plotwingcheck.Value = false;
             plotheadcheck.Value = false;
             plotabdcheck.Value = false;
+            plotlegcheck.Value = false;
             updateacquisition(plotwingcheck,[]);
             updateacquisition(plotheadcheck,[]);
+            updateacquisition(plotabdcheck,[]);
             updateacquisition(plotabdcheck,[]);
             return
         else
@@ -744,8 +884,16 @@ end
             fly.wingR.root = state.track.wing.root(2,:);
         end
         if trackabdcheck.Value
-            fly.abd.angle = wrapTo360(state.track.abd.angle);
+            fly.abd.angle = wrapTo360(state.track.abd.angle+bodycorrect);
             fly.abd.root = state.track.abd.root;
+        end
+        if tracklegcheck.Value
+            fly.legL.angle = wrapTo360(state.track.leg.angle(1,:)+bodycorrect);
+            fly.legL.tipX = state.track.leg.tip(1,:);
+            fly.legL.tipY = state.track.leg.tip(2,:);
+            fly.legR.angle = wrapTo360(state.track.leg.angle(2,:)+bodycorrect);
+            fly.legR.tipX = state.track.leg.tip(3,:);
+            fly.legR.tipY = state.track.leg.tip(4,:);
         end
     end
 
@@ -767,6 +915,7 @@ end
         f = 0;
         timeix = [];
         numframes = 0;
+%         progress.Value = 1;
         %             fprintf('Building Frame Index...');
         while hasFrame(vr)
             f = f+1;
@@ -796,7 +945,6 @@ end
         vf.Position = pos;
         vf.Visible = 'on';
         state.vid.ax.Position = [0 0 1 1];
-        
         trackwingcheck.Value = false;
         trackheadcheck.Value = false;
         trackabdcheck.Value = false;
@@ -820,10 +968,13 @@ end
         abdsetdisplay.String = '';
         
         trackpanel.Visible = 'off';
+        updatewingtracking(lockwingscheck,[]);
         
         state.track.wing.angle = nan(2,numframes);
         state.track.head.angle = nan(1,numframes);
         state.track.abd.angle = nan(1,numframes);
+        state.track.leg.angle = nan(2,numframes);
+        state.track.leg.tip = nan(4,numframes);
         state.track.ts = linspace(0,numframes/fps,numframes);
         state.track.head.root = [];
         state.track.abd.root = [];
@@ -878,9 +1029,9 @@ end
     end
 %% acquisition control functions
     function updateacquisition(a,~)
-       c = {trackwingcheck,trackheadcheck,trackabdcheck};
-       p = {plotwingcheck,plotheadcheck,plotabdcheck};
-       t = {wingtab,headtab,abdtab};
+       c = {trackwingcheck,trackheadcheck,trackabdcheck,tracklegcheck};
+       p = {plotwingcheck,plotheadcheck,plotabdcheck,plotlegcheck};
+       t = {wingtab,headtab,abdtab,legtab};
        tabchanged = false;
        switch a
            case c
@@ -934,12 +1085,17 @@ end
               trackwingcheck.Value = false;
               updateacquisition(trackwingcheck,[]);
               state.track.wing.angle = nan(2,state.vid.nframes);
+           case clearlegsbutton
+              tracklegcheck.Value = false;
+              updateacquisition(tracklegcheck,[]);
+              state.track.leg.angle = nan(2,state.vid.nframes);
+              state.track.leg.tip = nan(4,state.vid.nframes);
            otherwise
                disp('!');
        end
        %figure out tabs
         if tabchanged
-            for i = 1:3
+            for i = 1:length(c)
                set(t{i},'Parent',tabstorage);
                if c{i}.Value
                    set(t{i},'Parent',tabs);
@@ -989,9 +1145,12 @@ end
             case overlaywingscheck
                 state.track.wing.show.thresh = w.Value;
             case lockwingscheck
-                if state.track.wing.lock==w.Value;return;end %bound check so we don't flip something that doesn't need flipped
+                if state.track.wing.lock~=w.Value
+                    %don't flip this unless the state actually changes
+                    wingml1adjust.Value = 100-wingml1adjust.Value;
+                end 
                 state.track.wing.lock = w.Value;
-                wingml1adjust.Value = 100-wingml1adjust.Value;
+                
                 if state.track.wing.lock
                     enset = 'off';
                     tosync = {wingml1adjust,wingap1adjust,wingt1adjust,...
@@ -1028,7 +1187,7 @@ end
             
             case wingml2adjust
                 state.track.wing.ml(2) = w.Value;
-                wingml2setdisplay.String = [num2str(w.Value) '% rootML'];
+                wingml2setdisplay.String = [num2str(w.Value*2) '% rootML'];
             case wingap1adjust
                 ap = w.Value;
                 state.track.wing.ap(1) = ap;
@@ -1284,6 +1443,58 @@ end
         state.track.abd.mask = mask;
         state.track.abd.poly = poly;
     end
+
+%% leg tracking callbacks
+    function updatelegtracking(lg,~)
+        switch lg
+            case legnormdropdown
+                state.track.leg.norm = lg.Value;
+            case overlaylegcheck
+                state.track.leg.show.thresh = lg.Value;
+            case clearlegbordercheck
+                state.track.leg.clearborder = lg.Value;
+            case legapadjust
+                ap = lg.Value*100;
+                state.track.leg.ap = ap;
+                legapsetdisplay.String = [num2str(100-ap) '% AP'];
+            case legtiadjust
+                t=lg.Value;
+                legtietdisplay.String = [num2str(t*100) '% threshInt'];
+                state.track.leg.threshint = t;
+            case legoadjust
+                o=lg.Value;
+                legosetdisplay.String = [num2str(o) 'px offset'];
+                state.track.leg.offset = o;
+            case legeadjust
+                e=lg.Value;
+                legesetdisplay.String = [num2str(e) 'px extent'];
+                state.track.leg.extent = e;
+            case legtsadjust
+                n=lg.Value;
+                legtssetdisplay.String = [num2str(n) 'px threshSz'];
+                state.track.leg.threshsize = n;
+            case legspnadjust
+                span=180-lg.Value;
+                legspnsetdisplay.String = [num2str(180-span) '° span'];
+                state.track.leg.ltheta = 180+span/2;
+                state.track.leg.utheta = 360-span/2;
+        end
+        updatetracking();
+    end
+    function makelegmask()
+        lr = double(mean(state.track.leg.root));
+        r1 = state.track.leg.offset;
+        r2 = state.track.leg.offset+state.track.leg.extent;
+        lt = state.track.leg.ltheta+state.track.orientation;
+        rt = state.track.leg.utheta+state.track.orientation;
+        w = state.vid.width;
+        h = state.vid.height;
+        shift = state.track.orientation;
+        [mask, poly] = make_arc_mask(lr(1),lr(2),r1,r2,lt,rt,w,h,1,1.75,shift);
+        state.track.leg.mask = mask;
+        state.track.leg.poly = poly;
+        state.track.leg.borderidx = find(imdilate(bwmorph(mask,'remove'),ones(5)));
+    end
 %% plotting functions
     function plotdata()
         if ~state.showdata;return;end
@@ -1326,6 +1537,23 @@ end
             data = [data; seg];
             titles{di} = 'Abdomen';
             pcolors{di} = colors.abd./255;
+        end
+        if plotlegcheck.Value
+            di = di+1;
+            seg = wrapTo360(state.track.leg.angle(1,:)+correct);
+            jumpix=abs(diff(seg))>180;
+            seg(jumpix) = nan;
+            data = [data; seg];
+            titles{di} = 'Left Leg';
+            pcolors{di} = colors.leg./255;
+            
+            di = di+1;
+            seg = wrapTo360(state.track.leg.angle(2,:)+correct);
+            jumpix=abs(diff(seg))>180;
+            seg(jumpix) = nan;
+            data = [data; seg];
+            titles{di} = 'Right Leg';
+            pcolors{di} = colors.leg./255;
         end
         
         if di==0
@@ -1378,6 +1606,7 @@ end
             makewingmask;
             makeheadmask;
             makeabdmask;
+            makelegmask;
         end
         
         if strcmp(state.vid.vtimer.Running,'off')
@@ -1393,6 +1622,7 @@ end
         state.track.orientation = atan2d(ar(2)-hr(2),ar(1)-hr(1))-90;
         d = pdist2(hr,ar,'euclidean'); 
         
+        %get wingroots
         ap = round(state.track.wing.ap*d*.01);
         ml = round(state.track.wing.ml*d*.01);
         
@@ -1406,6 +1636,21 @@ end
         wr(2,1) = wc(1)+(ml(2))*sind(state.track.orientation+90);
         wr(2,2) = wc(2)-(ml(2))*cosd(state.track.orientation+90);
         state.track.wing.root = wr; 
+        
+        %get proleg roots
+        ap = round(state.track.leg.ap*d*.01);
+        ml = round(state.track.leg.offset);
+        
+        wc(1) = ar(1)+(ap)*sind(state.track.orientation);
+        wc(2) = ar(2)-(ap)*cosd(state.track.orientation);
+        lr(1,1) = wc(1)+(ml)*sind(state.track.orientation-90);
+        lr(1,2) = wc(2)-(ml)*cosd(state.track.orientation-90);
+        
+        wc(1) = ar(1)+(ap)*sind(state.track.orientation);
+        wc(2) = ar(2)-(ap)*cosd(state.track.orientation);
+        lr(2,1) = wc(1)+(ml)*sind(state.track.orientation+90);
+        lr(2,2) = wc(2)-(ml)*cosd(state.track.orientation+90);
+        state.track.leg.root = lr; 
     end
 
     function [angle, pts, bw] = trackborder(img,mask,root,thresh,norm,npts,side)
@@ -1465,11 +1710,11 @@ end
             end
         end
     end
-    function [angle, pts,bw] = tracktip(img,mask,root,thresh,norm,npts,mode,arg)
-        if nargin<7
+    function [angle,pts,bw] = tracktip(img,mask,root,thresh,norm,npts,mode,arg)
+        if nargin<7 || isempty(mode)
             mode = 1;
         end
-        if nargin<8
+        if nargin<8 || isempty(arg)
             switch mode
                 case 1 % average of distribution tails
                     arg = [10 90]; %upper and lower 10 percentiles default
@@ -1534,15 +1779,130 @@ end
             end
         end
     end
-    function [mask, poly] = make_arc_mask(centx,centy,r1,r2,theta1,theta2,w,h)
+
+    %leg tracking function
+    function [angle,tip,extrema,bw] = tracklegs(img,mask,borderlin,roots,threshint,threshsize,norm)        
+        roots = double(roots);
+        img = rgb2gray(img);
+       if norm == 2 % normalize tracking ROI only
+            img = imadjust(img,stretchlim(img(mask)));
+       elseif norm == 3 %normalize whole image
+           img = imadjust(img);
+       end
+        bw  = imbinarize(img(:,:,1),threshint)&mask;
+        p = regionprops(bw,'Area','Orientation','Extrema');     
+        
+
+            angle = nan(1,2); %null tracking if the ROI is blacked out
+            tip = nan(2,2);
+            extrema = nan(2,16);
+            if  isempty(p) | bw == mask
+                return %whiteout
+            end
+            if ~any(bw(:)~=0)
+                return %blackout
+            end
+            
+            areas = [p.Area];
+            keepix = areas>threshsize;
+            areas = areas(keepix);
+            p = p(keepix);
+            if isempty(p)
+                return;
+            end
+           
+            side = [];
+            tips = [];
+            if state.track.leg.clearborder
+                border = [];
+            else
+                border = zeros(1,length(p));
+            end
+            for i = 1:length(p)
+                extr = p(i).Extrema;
+                leftdist = sqrt((extr(:,1)-roots(1,1)).^2 + (extr(:,2)-roots(1,2)).^2);
+                rightdist = sqrt((extr(:,1)-roots(2,1)).^2 + (extr(:,2)-roots(2,2)).^2);
+                [~,sd] = min([leftdist rightdist]');
+                sd = mode(sd);
+                side(end+1) = sd;
+                if sd == 1
+                    [~,tipix] = maxk(leftdist,2);
+                else
+                    [~,tipix] = maxk(rightdist,2);
+                end
+                tip = extr(tipix,:);
+                tips = [tips;mean(tip)];
+                
+                if state.track.leg.clearborder
+                    extr = round(extr);%make into idx
+                    extr(extr<1) = 1;
+                    extr(extr(:,1)>size(mask,2),1)=size(mask,2);
+                    extr(extr(:,2)>size(mask,1),2)=size(mask,1);
+                    extr = sub2ind(size(mask),extr(:,2),extr(:,1));
+                    
+                    inpol = ismember(extr,borderlin);
+                    border(end+1)= sum(inpol)>5;
+                end
+            end
+            lix = side==1&~border;
+            rix = side==2&~border;
+            leftp = p(lix);
+            rightp = p(rix);
+            leftip = tips(lix,:);
+            rightip = tips(rix,:);
+            if ~isempty(leftp)
+                [~, maxix] = max(areas(lix));
+                a = wrapTo360(leftp(maxix).Orientation);
+                if a<180; a = a+180;end
+                angle = a;
+                tip = leftip(maxix,:);
+                extr = leftp(maxix).Extrema;            
+                extrema = reshape(extr',[1,16]);
+            else
+                angle = nan; %null tracking if the ROI is blacked out
+                tip = nan(1,2);
+                extrema = nan(1,16);
+            end
+            if ~isempty(rightp)
+                [~, maxix] = max(areas(rix));
+                a = wrapTo360(rightp(maxix).Orientation);
+                if a<180; a = a+180;end
+                angle = [angle a];
+                tip = [tip; rightip(maxix,:)];
+                extr = rightp(maxix).Extrema;            
+                extrema = [extrema;reshape(extr',[1,16])];
+            else
+                angle = [angle nan];
+                tip = [tip; nan(1,2)];
+                extrema = [extrema;nan(1,16)];
+            end
+%         end
+    end
+
+    function [mask, poly] = make_arc_mask(centx,centy,r1,r2,theta1,theta2,w,h,majax,minax,shift)
+        %assume a circle if no major/minor axes provided
+        if nargin<11;shift = 0;end
+        if nargin<10;minax=1;end
+        if nargin<9;majax=1;end
+        
         angle = linspace(theta1,theta2);
         
-        x1 = r1*cosd(angle);
-        x2 = r2*cosd(angle);
+        x1 = majax*r1*cosd(angle-shift);
+        x2 = majax*r2*cosd(angle-shift);
         
-        y1 = r1*sind(angle);
-        y2 = r2*sind(angle);
+        y1 = minax*r1*sind(angle-shift);
+        y2 = minax*r2*sind(angle-shift);
         
+        %make and apply transformation matrix
+        R  = [cosd(shift) -sind(shift); ...
+            sind(shift)  cosd(shift)];
+        rCoords = R*[x1 ; y1];
+        x1 = rCoords(1,:);
+        y1 = rCoords(2,:);
+        rCoords = R*[x2 ; y2];
+        x2 = rCoords(1,:);
+        y2 = rCoords(2,:);
+
         %make intervening points between two arcs for the end caps
         x3 = (x1(1) + x2(1))/2;
         y3 = (y1(1) + y2(1))/2;
@@ -1588,6 +1948,7 @@ end
         colorschemes(i).abd = [152 78 163];
         colorschemes(i).wingL = [77 175 74];
         colorschemes(i).wingR = [228 26 28];
+        colorschemes(i).leg = [255 217 47];
         colorschemes(i).axis = [255 127 0];
         colorschemes(i).name = 'Default';
         
@@ -1597,6 +1958,7 @@ end
         colorschemes(i).abd = [255 0 255];
         colorschemes(i).wingL = [0 255 0];
         colorschemes(i).wingR = [255 0 0];
+        colorschemes(i).leg = [255 255 0];
         colorschemes(i).axis = [0 0 255];
         colorschemes(i).name = 'RGB'; 
         
