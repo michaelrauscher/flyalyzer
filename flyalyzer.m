@@ -923,6 +923,7 @@ end
             numframes = numframes+1;
             readFrame(vr);
         end
+        progress.Value = 1;
         progress.Max = numframes;
         progress.SliderStep = [1/(numframes-1) 1/(numframes-1)];
         
@@ -948,27 +949,26 @@ end
         trackwingcheck.Value = false;
         trackheadcheck.Value = false;
         trackabdcheck.Value = false;
+        tracklegcheck.Value = false;
         updateacquisition(trackwingcheck,[]);
         updateacquisition(trackheadcheck,[]);
         updateacquisition(trackabdcheck,[]);
+        updateacquisition(tracklegcheck,[]);
         updatewingtracking(lockwingscheck,[]);
         
         vidpanel.Visible = 'on';
         setuppanel.Visible = 'on';
         set(loadbutton,'Position',[3 432 60 65]);
         set(headrootxadjust,'Min',0,'Max',state.vid.width,'Value',0,...
-            'SliderStep',[1/state.vid.width 10/state.vid.width]);
+            'SliderStep',[1/state.vid.width 10/state.vid.width],'Enable','off');
         set(headrootyadjust,'Min',0,'Max',state.vid.height,'Value',0,...
-            'SliderStep',[1/state.vid.width 10/state.vid.height]);
+            'SliderStep',[1/state.vid.width 10/state.vid.height],'Enable','off');
         set(abdrootxadjust,'Min',0,'Max',state.vid.width,'Value',0,...
-            'SliderStep',[1/state.vid.width 10/state.vid.width]);
+            'SliderStep',[1/state.vid.width 10/state.vid.width],'Enable','off');
         set(abdrootyadjust,'Min',0,'Max',state.vid.height,'Value',0,...
-            'SliderStep',[1/state.vid.width 10/state.vid.height]);
+            'SliderStep',[1/state.vid.width 10/state.vid.height],'Enable','off');
         headsetdisplay.String = '';
         abdsetdisplay.String = '';
-        
-        trackpanel.Visible = 'off';
-        updatewingtracking(lockwingscheck,[]);
         
         state.track.wing.angle = nan(2,numframes);
         state.track.head.angle = nan(1,numframes);
@@ -976,9 +976,25 @@ end
         state.track.leg.angle = nan(2,numframes);
         state.track.leg.tip = nan(4,numframes);
         state.track.ts = linspace(0,numframes/fps,numframes);
+       
         state.track.head.root = [];
+        state.track.head.mask = [];
+        state.track.head.poly = [];
+        state.track.wing.root = [];
+        state.track.wing.mask = [];
+        state.track.wing.poly = [];
         state.track.abd.root = [];
+        state.track.abd.mask = [];
+        state.track.abd.poly = [];
+        state.track.leg.root = [];
+        state.track.leg.mask = [];
+        state.track.leg.poly = [];
+        
         state.showdata = false;
+        
+        trackpanel.Visible = 'off';
+        updatewingtracking(lockwingscheck,[]);
+        
         if strcmp(tf.Visible,'on');tf.Visible = 'off';end
         setframeix(1);
     end
