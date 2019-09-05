@@ -1,102 +1,27 @@
 % Flyalyzer, Michael Rauscher 2019
 
 function flyalyzer(vidname)
+    %only allow one running instance
+    fgs=findobj('Type','figure');
+    if ~isempty(fgs)
+        if any(contains({fgs.Name},'Flyalyzer'));return;end
+    end
+
 %% state variable declaration
     import java.awt.Robot;
-    mouse = Robot;
-    
+    mouse = Robot; %for moving mouse over the image frame to pick points
+    closing = false;
     colors = getcolors(1);
     
-    state = struct;
-    state.closing = false;
-    state.showdata = false;
-    state.invertbw = false;
+    vreader = []; %will be assigned the VideoReader object for active file
+    vtimer = timer; %timer for playing the video
+    vtimer.Period = .001;
+    vtimer.TimerFcn = @nextframe;
+    vtimer.ExecutionMode = 'fixedSpacing';
+    vtimer.BusyMode = 'queue';
     
-    state.vid.vreader = [];
-    state.vid.vtimer = timer;
-    state.vid.vtimer.Period = .001;
-    state.vid.vtimer.TimerFcn = @nextframe;
-    state.vid.vtimer.ExecutionMode = 'fixedSpacing';
-    state.vid.vtimer.BusyMode = 'queue';
-    state.vid.path = pwd;
-    state.vid.basename = '';
-    state.vid.ext = '';
-    state.vid.fname = [];
-    state.vid.ix = 1;
-    state.vid.loop = false;
-    
-    state.track.ts = [];
-    
-    state.track.head.angle = [];
-    state.track.head.root = [];
-    state.track.head.mask = [];
-    state.track.head.poly = [];
-    state.track.head.thresh = .6;
-    state.track.head.norm = 1;
-    state.track.head.method = 2;
-    state.track.head.offset = 30;
-    state.track.head.extent = 15; 
-    state.track.head.ltheta = 220;
-    state.track.head.utheta = 320;
-    state.track.head.npts = 30;    
-    state.track.head.show.pts = true;
-    state.track.head.show.thresh = false;
-    state.track.head.show.poly = true;
-    
-    state.track.abd.angle = [];
-    state.track.abd.root = [];
-    state.track.abd.mask = [];
-    state.track.abd.poly = [];
-    state.track.abd.thresh = .8;
-    state.track.abd.norm = 1;
-    state.track.abd.method = 2;
-    state.track.abd.offset = 50;
-    state.track.abd.extent = 30; 
-    state.track.abd.ltheta = 60;
-    state.track.abd.utheta = 120;
-    state.track.abd.npts = 50;    
-    state.track.abd.show.pts = true;
-    state.track.abd.show.thresh = false;
-    state.track.abd.show.poly = true;
-    
-    state.track.leg.angle = [];
-    state.track.leg.tip = [];
-    state.track.leg.root = [];
-    state.track.leg.mask = [];
-    state.track.leg.poly = [];
-    state.track.leg.clearborder = true;
-    state.track.leg.borderidx = [];
-    state.track.leg.ap  = 80;
-    state.track.leg.threshint = .4;
-    state.track.leg.threshsize = 150;
-    state.track.leg.norm = 1;
-    state.track.leg.offset = 45;
-    state.track.leg.eccen = 1.75;
-    state.track.leg.extent = 50; 
-    state.track.leg.ltheta = 200;
-    state.track.leg.utheta = 340;
-    state.track.leg.show.pts = true;
-    state.track.leg.show.thresh = true;
-    state.track.leg.show.poly = true;
-    
-    state.track.wing.angle = [];  
-    state.track.wing.root = [];
-    state.track.wing.mask = [];
-    state.track.wing.poly = [];
-    state.track.wing.ap = [25 25];
-    state.track.wing.ml = [50 50];
-    state.track.wing.thresh = [.1 .1];
-    state.track.wing.norm = 2;
-    state.track.wing.offset = [80 80];
-    state.track.wing.extent = [30 30]; 
-    state.track.wing.ltheta = [150 275];
-    state.track.wing.utheta = [265 390];
-    state.track.wing.npts = [70 70];
-    state.track.wing.lock = true;
-    state.track.wing.show.pts = true;
-    state.track.wing.show.thresh = true;
-    state.track.wing.show.poly = true;
-    
+    %UIControl state variables that survive loading and saving a file
+    state = initializestatevariables();
 %% ui figure init
     cf = figure('Name','Flyalyzer','NumberTitle','off',...
     'MenuBar','none','Resize','off','Position',[50 175 250 500],...
@@ -105,496 +30,15 @@ function flyalyzer(vidname)
     vf = figure('Name','','NumberTitle','off','Visible','off',...
     'MenuBar','none','Resize','on','Position',[300 175 500 666],...
     'CloseRequestFcn',@closecleanup);
-    state.vid.ax = gca;
+    vidax = axes(vf);
     
     tf = figure('Name','Kinematic Trace','NumberTitle','off','Visible','off',...
     'MenuBar','none','Resize','off','Position',[966 175 500 500],...
     'CloseRequestFcn',@closecleanup);
     datax = axes(tf);
-    lines = line(datax);
-
-%% vidpanel and load button ui init
-
-    exportbutton = uicontrol(cf,'Style','pushbutton','String',...
-        'Export to Workspace','Position',[0 0 125 45],'Callback',@savedata);
-    
-    savebutton = uicontrol(cf,'Style','pushbutton','String',...
-        'Save to Disk','Position',[125 0 125 45],'Callback',@savedata);
-
-    loadbutton = uicontrol(cf,'Style','pushbutton','String',...
-        'Load File','Position',[0 0 250 500],'Callback',@loadbtn);
-    
-    vidpanel = uipanel(cf,'Title',' ','Units','pixels',...
-        'Position',[63 430 187 70],'BorderType','none','Visible','off');
-    
-    playpause = uicontrol(vidpanel,'Style','pushbutton','String',...
-        '>','Position',[2 28 30 40],...
-        'Callback',@playctrl,'Interruptible','on');
-    
-    stopbutton = uicontrol(vidpanel,'Style','pushbutton','String',...
-        '[]','Position',[32 28 20 40],...
-        'Callback',@playctrl);
-    
-    dispframe = uicontrol(vidpanel,'Style', 'edit',...
-        'String','','ButtonDownFcn',@playctrl,...
-        'Position', [54 48 131 20],'Enable','off');
-    
-    progress = uicontrol(vidpanel,'Style','slider', 'Min',1,'Max',2,'Value',1,...
-        'SliderStep',[1/(2-1) 1/(2-1)],...
-        'Position',[54 28 131 20],'Callback',@playctrl);
-    
-    loopcheck = uicontrol(vidpanel,'Style', 'checkbox','String','Loop',...
-        'Position', [3 3 50 20],'Callback',@playctrl);
-    
-    invertcheck = uicontrol(vidpanel,'Style', 'checkbox','String','Invert',...
-        'Value',state.invertbw,'Position', [51 3 60 20],...
-        'Callback',@updateacquisition);
-    
-    fpsdisplay = uicontrol(vidpanel,'Style','edit','Enable','off',...,
-        'String',[],'Position',[102 2 80 20],'ButtonDownFcn',@updatefps);
-    
-%% acquisition tabs ui init
-
-    setuppanel = uipanel('Parent', cf, 'Title', '','Visible','off',...
-        'BorderType','none','Units','Pixels','Position',[0 283 250 145]); 
-    tabs = uitabgroup('Parent', cf,'Units','Pixels','Visible','off',...
-    'Position',[0 45 250 240]);
-    tabstorage = uitabgroup('Parent',cf,'Visible','off');
-       
-    wingtab = uitab('Parent', tabstorage, 'Title', 'Wings');
-    headtab = uitab('Parent', tabstorage, 'Title', 'Head');
-    abdtab = uitab('Parent', tabstorage, 'Title', 'Abdomen');
-    legtab = uitab('Parent', tabstorage,'Title', 'Legs');
-    
-%% acquisition control ui init
-    
-    axistitle = uicontrol(setuppanel,'Style', 'text','FontWeight','Bold',...
-        'Position', [5 120 100 20],'String','Define Body Axis');    
-    
-    headroottext = uicontrol(setuppanel,'Style', 'text',...
-        'Position', [5 100 60 20],'String','Head Root',...
-        'HorizontalAlignment','right');
-    headsetdisplay = uicontrol(setuppanel,'Style','edit','String',...
-        [],'Position',[90 102 70 20],'Enable','off');
-    
-    headrootxadjust = uicontrol(setuppanel,'Style', 'slider','Value',0,...
-        'Position', [70 102 20 19],'Enable','off','Callback',@updateacquisition);
-    headrootyadjust = uicontrol(setuppanel,'Style', 'slider','Value',0,...
-        'Position', [160 102 20 20],'Enable','off','Callback',@updateacquisition);    
-    headptbutton = uicontrol(setuppanel,'Style','pushbutton','String',...
-        'Pick','Position',[190 102 50 20],'Callback',@updateacquisition);
-    
-    abdroottext = uicontrol(setuppanel,'Style', 'text',...
-        'Position', [5 80 60 20],'String','Abd. Root',...
-        'HorizontalAlignment','right');
-    abdsetdisplay = uicontrol(setuppanel,'Style','edit','String',...
-        [],'Position',[90 82 70 20],'Enable','off');    
-    abdrootxadjust = uicontrol(setuppanel,'Style', 'slider','Value',0,...
-        'Position', [70 82 20 19],'Enable','off','Callback',@updateacquisition);
-    abdrootyadjust = uicontrol(setuppanel,'Style', 'slider','Value',0,...
-        'Position', [160 82 20 20],'Enable','off','Callback',@updateacquisition);
-    abdptbutton = uicontrol(setuppanel,'Style','pushbutton','String',...
-        'Pick','Position',[190 82 50 20],'Callback',@updateacquisition);
-    
-    trackpanel = uipanel(setuppanel,'Units','pixels','Title','Track Body Parts',...
-        'FontWeight','bold','Position',[3 3 243 76],'Visible','off');
-    
-    tracktext = uicontrol(trackpanel,'Style', 'text',...
-        'Position', [7 25 40 15],'String','Track:',...
-        'HorizontalAlignment','right');
-    
-    plottext = uicontrol(trackpanel,'Style', 'text',...
-        'Position', [7 5 40 15],'String','Plot:',...
-        'HorizontalAlignment','right');
-    
-    trackwingtext = uicontrol(trackpanel,'Style', 'text',...
-        'Position', [55 37 50 20],'String','Wings',...
-        'HorizontalAlignment','left');
-    trackwingcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [65 23 20 20],'Callback',@updateacquisition);
-    plotwingcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [65 3 20 20],'Callback',@updateacquisition);
-    
-    trackheadtext = uicontrol(trackpanel,'Style', 'text',...
-        'Position', [109 37 50 20],'String','Head',...
-        'HorizontalAlignment','left');
-    trackheadcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [114 23 20 20],'Callback',@updateacquisition);
-    plotheadcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [114 3 20 20],'Callback',@updateacquisition);
-    
-    trackabdtext = uicontrol(trackpanel,'Style', 'text',...
-        'Position', [148 37 50 20],'String','Abdomen',...
-        'HorizontalAlignment','left');    
-    trackabdcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [163 23 20 20],'Callback',@updateacquisition);
-    plotabdcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [163 3 20 20],'Callback',@updateacquisition);
-    
-    tracklegtext = uicontrol(trackpanel,'Style', 'text',...
-        'Position', [209 37 50 20],'String','Legs',...
-        'HorizontalAlignment','left');    
-    tracklegcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [212 23 20 20],'Callback',@updateacquisition);
-    plotlegcheck = uicontrol(trackpanel,'Style', 'checkbox',...
-        'Position', [212 3 20 20],'Callback',@updateacquisition);
-    
-%% wing tracking ui init
-
-    leftwingtext = uicontrol(wingtab,'Style', 'text',...
-        'Position', [33 190 70 20],'String','Left Wing',...
-        'FontWeight','bold','HorizontalAlignment','left');
-    
-    rightwingtext = uicontrol(wingtab,'Style', 'text',...
-        'Position', [158 190 70 20],'String','Right Wing',...
-        'FontWeight','bold','HorizontalAlignment','left');
-    
-    
-    wingnormdropdown = uicontrol(wingtab,'Style','popupmenu','String',...
-        {'no norm','ROI norm','Full norm'},'Tooltip','Histogram Normalization Options',...
-        'Value',state.track.wing.norm,'Position',[3 7 70 17],...
-        'Callback',@updatewingtracking);
-    
-    overlaywingscheck = uicontrol(wingtab,'Style','checkbox','String',...
-        'BW','Value',state.track.wing.show.thresh,'Tooltip','Overlay Thresholded ROI',...
-        'Position', [80 3 60 20],'Callback',@updatewingtracking);
-    
-    lockwingscheck = uicontrol(wingtab,'Style', 'checkbox','String',...
-        'Sync','Value',state.track.wing.lock,'Tooltip','Sync Left and Right Wing Settings',...
-        'Position', [130 3 60 20],'Callback',@updatewingtracking);
-    
-    clearwingsbutton = uicontrol(wingtab,'Style','pushbutton','String',...
-        'Clear Data','Position',[180 1 63 24],'Callback',@updateacquisition);
+    lines = line(datax);    
+    ui = initializeuicontrols();
         
-    wingap1adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',state.track.wing.ap(1),'Position', [3 173 20 20],...
-        'Min',0,'Max',100,'SliderStep',[1/100, 1/100],...
-        'Callback',@updatewingtracking);
-    wingap2adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',state.track.wing.ap(2),'Position', [128 173 20 20],...
-        'Min',0,'Max',100,'SliderStep',[1/100, 1/100],...
-        'Callback',@updatewingtracking);
-    wingap1setdisplay = uicontrol(wingtab,'Style','edit','String',...
-        [num2str(wingap1adjust.Value) '% rootAP'],...
-        'Position',[23 173 95 20],'Enable','off');
-    wingap2setdisplay = uicontrol(wingtab,'Style','edit','String',...
-        [num2str(wingap2adjust.Value) '% rootAP'],...
-        'Position',[148 173 95 20],'Enable','off');
-    
-    wingml1adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',state.track.wing.ml(1),'Position', [3 152 20 19],...
-        'Min',0,'Max',100,'SliderStep',[1/100, 1/100],...
-        'Callback',@updatewingtracking);
-    wingml2adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',state.track.wing.ml(2),'Position', [128 152 20 19],...
-        'Min',0,'Max',100,'SliderStep',[2/100, 2/100],...
-        'Callback',@updatewingtracking);
-    wingml1setdisplay = uicontrol(wingtab,'Style','edit','String',...
-        [num2str(wingml1adjust.Value) '% rootML'],...
-        'Position',[23 152 95 20],'Enable','off');
-    wingml2setdisplay = uicontrol(wingtab,'Style','edit','String',...
-        [num2str(wingml2adjust.Value) '% rootML'],...
-        'Position',[148 152 95 20],'Enable','off');
-    
-    
-    wingt1setdisplay = uicontrol(wingtab,'Style','edit','String',...
-        [num2str(state.track.wing.thresh(1)*100) '% thresh'],...
-        'Position',[23 131 95 20],'Enable','off');
-    wingt2setdisplay = uicontrol(wingtab,'Style','edit','String',...
-        [num2str(state.track.wing.thresh(2)*100) '% thresh'],...
-        'Position',[148 131 95 20],'Enable','off');    
-    wingt1adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',state.track.wing.thresh(1),'Position', [3 131 20 20],...
-        'Min',0,'Max',1,'SliderStep',[1/100, 1/10],...
-        'Callback',@updatewingtracking);
-    wingt2adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',state.track.wing.thresh(2),'Position', [128 131 20 20],...
-        'Min',0,'Max',1,'SliderStep',[1/100, 1/10],...
-        'Callback',@updatewingtracking);
-    
-    wingo1setdisplay = uicontrol(wingtab,'Style','edit','String',...
-        [num2str(state.track.wing.offset(1)) 'px offset'],...
-        'Position',[23 110 95 20],'Enable','off');
-    wingo2setdisplay = uicontrol(wingtab,'Style','edit','String',...
-        [num2str(state.track.wing.offset(2)) 'px offset'],...
-        'Position',[148 110 95 20],'Enable','off');    
-    wingo1adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',state.track.wing.offset(1),'Position', [3 110 20 20],...
-        'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
-        'Callback',@updatewingtracking);
-    wingo2adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',state.track.wing.offset(2),'Position', [128 110 20 20],...
-        'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
-        'Callback',@updatewingtracking);
-    
-    winge1setdisplay = uicontrol(wingtab,'Style','edit','String',...
-        [num2str(state.track.wing.extent(1)) 'px extent'],...
-        'Position',[23 89 95 20],'Enable','off');
-    winge2setdisplay = uicontrol(wingtab,'Style','edit','String',...
-        [num2str(state.track.wing.extent(2)) 'px extent'],...
-        'Position',[148 89 95 20],'Enable','off');
-    winge1adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',state.track.wing.extent(1),'Position', [3 89 20 20],...
-        'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
-        'Callback',@updatewingtracking);
-    winge2adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',state.track.wing.extent(2),'Position', [128 89 20 20],...
-        'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
-        'Callback',@updatewingtracking);
-    
-    wingn1setdisplay = uicontrol(wingtab,'Style','edit','String',...
-        [num2str(state.track.wing.npts(1)) 'px tracked'],...
-        'Position',[23 68 95 20],'Enable','off');
-    wingn2setdisplay = uicontrol(wingtab,'Style','edit','String',...
-        [num2str(state.track.wing.npts(2)) 'px tracked'],...
-        'Position',[148 68 95 20],'Enable','off');    
-    wingn1adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',state.track.wing.npts(1),'Position', [3 68 20 20],...
-        'Min',0,'Max',400,'SliderStep',[1/400, 1/40],...
-        'Callback',@updatewingtracking);
-    wingn2adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',state.track.wing.npts(2),'Position', [128 68 20 20],...
-        'Min',0,'Max',400,'SliderStep',[1/400, 1/40],...
-        'Callback',@updatewingtracking);
-    
-    wingu1setdisplay = uicontrol(wingtab,'Style','edit','String',...
-        [num2str(360-state.track.wing.utheta(1)) '° upper'],...
-        'Position',[23 47 95 20],'Enable','off');
-    wingl2setdisplay = uicontrol(wingtab,'Style','edit','String',...
-        [num2str(360-state.track.wing.ltheta(2)) '° lower'],...
-        'Position',[148 47 95 20],'Enable','off');    
-    wingu1adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',state.track.wing.utheta(1),'Position', [3 47 20 19],...
-        'Min',-1,'Max',360,'SliderStep',[1/361, 1/361],...
-        'Callback',@updatewingtracking);
-    wingl2adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',state.track.wing.ltheta(2),'Position', [128 47 20 19],...
-        'Min',-1,'Max',360,'SliderStep',[1/361, 1/361],...
-        'Callback',@updatewingtracking);
-    
-    wingl1setdisplay = uicontrol(wingtab,'Style','edit','String',...
-        [num2str(360-state.track.wing.ltheta(1)) '° lower'],...
-        'Position',[23 26 95 20],'Enable','off');
-    wingu2setdisplay = uicontrol(wingtab,'Style','edit','String',...
-        [num2str(wrapTo360(360-state.track.wing.utheta(2))) '° upper'],...
-        'Position',[148 26 95 20],'Enable','off');    
-    wingl1adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',state.track.wing.ltheta(1),'Position', [3 26 20 19],...
-        'Min',-1,'Max',360,'SliderStep',[1/361, 1/361],...
-        'Callback',@updatewingtracking);
-    wingu2adjust = uicontrol(wingtab,'Style', 'slider',...
-        'Value',state.track.wing.utheta(2)-360,'Position', [128 26 20 19],...
-        'Min',-1,'Max',360,'SliderStep',[1/361, 1/361],...
-        'Callback',@updatewingtracking);
-%% head tracking ui init 
-
-    headmethodtext = uicontrol(headtab,'Style','text','FontWeight','Bold',...
-        'Position', [154 174 90 30],'String','Tip-Tracking Method');
-
-    headmethoddropdown = uicontrol(headtab,'Style','popupmenu','String',...
-        {'distribution','k-means'},'Value',state.track.head.method,...
-        'Position',[159 151 80 22],'Callback',@updateheadtracking);
-    
-    headnormtext = uicontrol(headtab,'Style', 'text','FontWeight','Bold',...
-        'Position', [154 109 90 30],'String','Histogram Normalization');
-
-    headnormdropdown = uicontrol(headtab,'Style','popupmenu','String',...
-        {'none','ROI only','full image'},'Value',state.track.head.norm,...
-        'Position',[159 86 80 22],'Callback',@updateheadtracking);
-    
-    overlayheadcheck = uicontrol(headtab,'Style','checkbox','String',...
-        'Overlay BW','Value',state.track.head.show.thresh,...,
-        'Tooltip','Overlay Thresholded ROI',...
-        'Position', [159 64 80 20],'Callback',@updateheadtracking);
-    
-    clearheadbutton = uicontrol(headtab,'Style','pushbutton','String',...
-        'Clear Data','Position',[159 6 80 50],'Callback',@updateacquisition);
-
-    headtsetdisplay = uicontrol(headtab,'Style','edit','String',...
-        [num2str(state.track.head.thresh*100) '% thresh'],...
-        'Position',[33 176 120 30],'Enable','off');
-    headtadjust = uicontrol(headtab,'Style', 'slider',...
-        'Value',state.track.head.thresh,'Position', [3 176 30 30],...
-        'Min',0,'Max',1,'SliderStep',[1/100, 1/10],...
-        'Callback',@updateheadtracking);
-    
-    headosetdisplay = uicontrol(headtab,'Style','edit','String',...
-        [num2str(state.track.head.offset) 'px offset'],...
-        'Position',[33 142 120 30],'Enable','off');
-    headoadjust = uicontrol(headtab,'Style', 'slider',...
-        'Value',state.track.head.offset,'Position', [3 142 30 30],...
-        'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
-        'Callback',@updateheadtracking);
-    
-    headesetdisplay = uicontrol(headtab,'Style','edit','String',...
-        [num2str(state.track.head.extent) 'px extent'],...
-        'Position',[33 108 120 30],'Enable','off');
-    headeadjust = uicontrol(headtab,'Style', 'slider',...
-        'Value',state.track.head.extent,'Position', [3 108 30 30],...
-        'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
-        'Callback',@updateheadtracking);
-    
-    headnsetdisplay = uicontrol(headtab,'Style','edit','String',...
-        [num2str(state.track.head.npts) 'px tracked'],...
-        'Position',[33 74 120 30],'Enable','off');
-    headnadjust = uicontrol(headtab,'Style', 'slider',...
-        'Value',state.track.head.npts,'Position', [3 74 30 30],...
-        'Min',0,'Max',400,'SliderStep',[1/400, 1/40],...
-        'Callback',@updateheadtracking);
-    
-    headusetdisplay = uicontrol(headtab,'Style','edit','String',...
-        [num2str(360-state.track.head.utheta) '° upper'],...
-        'Position',[33 40 120 30],'Enable','off');
-    headuadjust = uicontrol(headtab,'Style', 'slider',...
-        'Value',state.track.head.utheta,'Position', [3 40 30 29],...
-        'Min',270,'Max',360,'SliderStep',[1/90, 1/9],...
-        'Callback',@updateheadtracking);
-    
-    headlsetdisplay = uicontrol(headtab,'Style','edit','String',...
-        [num2str(360-state.track.head.ltheta) '° lower'],...
-        'Position',[33 6 120 30],'Enable','off');
-    headladjust = uicontrol(headtab,'Style', 'slider',...
-        'Value',state.track.head.ltheta,'Position', [3 6 30 29],...
-        'Min',180,'Max',270,'SliderStep',[1/90, 1/90],...
-        'Callback',@updateheadtracking);
-    
-%% abdomen tracking ui init   
-    
-    abdnormtext = uicontrol(abdtab,'Style', 'text','FontWeight','Bold',...
-        'Position', [154 174 90 30],'String','Histogram Normalization');
-
-    abdnormdropdown = uicontrol(abdtab,'Style','popupmenu','String',...
-        {'none','ROI only','full image'},'Value',state.track.abd.norm,...
-        'Position',[159 151 80 22],'Callback',@updateabdtracking);
-    
-    overlayabdcheck = uicontrol(abdtab,'Style','checkbox','String',...
-        'Overlay BW','Value',state.track.abd.show.thresh,...,
-        'Tooltip','Overlay Thresholded ROI',...
-        'Position', [159 129 80 20],'Callback',@updateabdtracking);
-    
-    clearabdbutton = uicontrol(abdtab,'Style','pushbutton','String',...
-        'Clear Data','Position',[159 6 80 50],'Callback',@updateacquisition);
-
-    abdtsetdisplay = uicontrol(abdtab,'Style','edit','String',...
-        [num2str(state.track.abd.thresh*100) '% thresh'],...
-        'Position',[33 176 120 30],'Enable','off');
-    abdtadjust = uicontrol(abdtab,'Style', 'slider',...
-        'Value',state.track.abd.thresh,'Position', [3 176 30 30],...
-        'Min',0,'Max',1,'SliderStep',[1/100, 1/10],...
-        'Callback',@updateabdtracking);
-    
-    abdosetdisplay = uicontrol(abdtab,'Style','edit','String',...
-        [num2str(state.track.abd.offset) 'px offset'],...
-        'Position',[33 142 120 30],'Enable','off');
-    abdoadjust = uicontrol(abdtab,'Style', 'slider',...
-        'Value',state.track.abd.offset,'Position', [3 142 30 30],...
-        'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
-        'Callback',@updateabdtracking);
-    
-    abdesetdisplay = uicontrol(abdtab,'Style','edit','String',...
-        [num2str(state.track.abd.extent) 'px extent'],...
-        'Position',[33 108 120 30],'Enable','off');
-    abdeadjust = uicontrol(abdtab,'Style', 'slider',...
-        'Value',state.track.abd.extent,'Position', [3 108 30 30],...
-        'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
-        'Callback',@updateabdtracking);
-    
-    abdnsetdisplay = uicontrol(abdtab,'Style','edit','String',...
-        [num2str(state.track.abd.npts) 'px tracked'],...
-        'Position',[33 74 120 30],'Enable','off');
-    abdnadjust = uicontrol(abdtab,'Style', 'slider',...
-        'Value',state.track.abd.npts,'Position', [3 74 30 30],...
-        'Min',0,'Max',1000,'SliderStep',[1/1000, 1/100],...
-        'Callback',@updateabdtracking);
-    
-    abdusetdisplay = uicontrol(abdtab,'Style','edit','String',...
-        [num2str(360-state.track.abd.utheta) '° upper'],...
-        'Position',[33 40 120 30],'Enable','off');
-    abduadjust = uicontrol(abdtab,'Style', 'slider',...
-        'Value',state.track.abd.utheta,'Position', [3 40 30 29],...
-        'Min',90,'Max',180,'SliderStep',[1/90, 1/9],...
-        'Callback',@updateabdtracking);
-    
-    abdlsetdisplay = uicontrol(abdtab,'Style','edit','String',...
-        [num2str(360-state.track.abd.ltheta) '° lower'],...
-        'Position',[33 6 120 30],'Enable','off');
-    abdladjust = uicontrol(abdtab,'Style', 'slider',...
-        'Value',state.track.abd.ltheta,'Position', [3 6 30 29],...
-        'Min',0,'Max',90,'SliderStep',[1/90, 1/90],...
-        'Callback',@updateabdtracking);
-
-%% leg tracking ui init
-    
-    legnormtext = uicontrol(legtab,'Style', 'text','FontWeight','Bold',...
-        'Position', [154 174 90 30],'String','Histogram Normalization');
-
-    legnormdropdown = uicontrol(legtab,'Style','popupmenu','String',...
-        {'none','ROI only','full image'},'Value',state.track.leg.norm,...
-        'Position',[159 151 80 22],'Callback',@updatelegtracking);
-    
-    overlaylegcheck = uicontrol(legtab,'Style','checkbox','String',...
-        'Overlay BW','Value',state.track.leg.show.thresh,...,
-        'Tooltip','Overlay Thresholded ROI',...
-        'Position', [159 129 80 20],'Callback',@updatelegtracking);
-    
-    clearlegbordercheck = uicontrol(legtab,'Style','checkbox','String',...
-        sprintf('Clear Border'),'Value',state.track.leg.clearborder,...,
-        'Tooltip','Do not track blobs with majority of extrema on ROI border',...
-        'Position', [159 102 80 20],'Callback',@updatelegtracking);
-    
-    clearlegsbutton = uicontrol(legtab,'Style','pushbutton','String',...
-        'Clear Data','Position',[159 6 80 50],'Callback',@updateacquisition);    
-    
-    legapsetdisplay = uicontrol(legtab,'Style','edit','String',...
-        [num2str(100-state.track.leg.ap) '% AP'],...
-        'Position',[33 176 120 30],'Enable','off');
-    legapadjust = uicontrol(legtab,'Style', 'slider',...
-        'Value',state.track.leg.ap/100,'Position', [3 176 30 30],...
-        'Min',0,'Max',1,'SliderStep',[1/100, 1/10],...
-        'Callback',@updatelegtracking);    
-
-    legtietdisplay = uicontrol(legtab,'Style','edit','String',...
-        [num2str(state.track.leg.threshint*100) '% threshInt'],...
-        'Position',[33 142 120 30],'Enable','off');
-    legtiadjust = uicontrol(legtab,'Style', 'slider',...
-        'Value',state.track.leg.threshint,'Position', [3 142 30 30],...
-        'Min',0,'Max',1,'SliderStep',[1/100, 1/10],...
-        'Callback',@updatelegtracking);
-    
-    legtssetdisplay = uicontrol(legtab,'Style','edit','String',...
-        [num2str(state.track.leg.threshsize) 'px threshSz'],...
-        'Position',[33 108 120 30],'Enable','off');
-    legtsadjust = uicontrol(legtab,'Style', 'slider',...
-        'Value',state.track.leg.threshsize,'Position', [3 108 30 30],...
-        'Min',0,'Max',1000,'SliderStep',[1/1000, 1/100],...
-        'Callback',@updatelegtracking);    
-    
-    legosetdisplay = uicontrol(legtab,'Style','edit','String',...
-        [num2str(state.track.leg.offset) 'px offset'],...
-        'Position',[33 74 120 30],'Enable','off');
-    legoadjust = uicontrol(legtab,'Style', 'slider',...
-        'Value',state.track.leg.offset,'Position', [3 74 30 30],...
-        'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
-        'Callback',@updatelegtracking);
-    
-    legesetdisplay = uicontrol(legtab,'Style','edit','String',...
-        [num2str(state.track.leg.extent) 'px extent'],...
-        'Position',[33 40 120 30],'Enable','off');
-    legeadjust = uicontrol(legtab,'Style', 'slider',...
-        'Value',state.track.leg.extent,'Position', [3 40 30 30],...
-        'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
-        'Callback',@updatelegtracking);
-    
-    span = state.track.leg.utheta-state.track.leg.ltheta;
-    legspnsetdisplay = uicontrol(legtab,'Style','edit','String',...
-        [num2str(360-span) '° span'],...
-        'Position',[33 6 120 30],'Enable','off');
-    legspnadjust = uicontrol(legtab,'Style', 'slider',...
-        'Value',span,'Position', [3 6 30 29],...
-        'Min',0,'Max',180,'SliderStep',[1/180, 1/180],...
-        'Callback',@updatelegtracking);
-    
-    
 %% input argument handling
 if nargin>0
     [vidfilepath,vidfilename,ext]=fileparts(vidname);
@@ -603,32 +47,29 @@ if nargin>0
         loadvid([vidfilename ext],vidfilepath);
     end
 end
-
 %% main support functions
-
     function nextframe(~,~)
         if (state.vid.ix+1)>state.vid.nframes
             if state.vid.loop
                 setframeix(1);
             else
-                stop(state.vid.vtimer);
-                playpause.String = '>';
+                stop(vtimer);
+                ui.playpause.String = '>';
             end
         else
             setframeix(state.vid.ix+1);
         end
     end
-
     function setframeix(ix)
         %if the requested frame is the next frame we can just read the next
         %frame, so we'll only set the video time if we need to
         if ix~=(state.vid.ix+1)
-            state.vid.vreader.CurrentTime = state.vid.timeix(ix);
+            vreader.CurrentTime = state.vid.timeix(ix);
         end
         state.vid.ix = ix;
-        state.vid.curframe = readFrame(state.vid.vreader);
-        progress.Value = ix;
-        dispframe.String = ['Frame ' num2str(ix) ' of ' num2str(state.vid.nframes)];
+        state.vid.curframe = readFrame(vreader);
+        ui.progress.Value = ix;
+        ui.dispframe.String = ['Frame ' num2str(ix) ' of ' num2str(state.vid.nframes)];
         processframe();
         showframe();
         plotdata();
@@ -654,7 +95,7 @@ end
             out = insertShape(out,'Line',insline,'color',colors.axis);
             
             % wing tracking
-            if trackwingcheck.Value && ~isempty(state.track.wing.poly)
+            if ui.trackwingcheck.Value && ~isempty(state.track.wing.poly)
                 [angle1,pts1,bw1] = trackborder(img,wing.mask(:,:,1),wing.root(1,:),wing.thresh(1),wing.norm,wing.npts(1),'lower');
                 angle1 = wrapTo360(angle1);
                 r = wing.extent(1)+wing.offset(1);
@@ -693,7 +134,7 @@ end
                 end
             end
             
-            if trackheadcheck.Value && ~isempty(state.track.head.poly)
+            if ui.trackheadcheck.Value && ~isempty(state.track.head.poly)
                 
                 [angle, pts,bw] = tracktip(img,head.mask,head.root,head.thresh,head.norm,head.npts,head.method);
                 angle = wrapTo360(angle);
@@ -726,7 +167,7 @@ end
                     out = insertShape(out,'Polygon',head.poly,'color',colors.head);
                 end
             end
-            if trackabdcheck.Value && ~isempty(state.track.abd.poly)                
+            if ui.trackabdcheck.Value && ~isempty(state.track.abd.poly)                
                 [angle,pts,bw] = tracktip(img,abd.mask,abd.root,abd.thresh,abd.norm,abd.npts,abd.method,1);
                 angle = wrapTo360(angle);
                 r = abd.extent+abd.offset;
@@ -754,8 +195,8 @@ end
             end
         end
         
-        if tracklegcheck.Value && ~isempty(state.track.leg.poly)
-            [angle,tip,extrema,bw] = tracklegs(img,leg.mask,leg.borderidx,leg.root,leg.threshint,leg.threshsize,legnormdropdown.Value);
+        if ui.tracklegcheck.Value && ~isempty(state.track.leg.poly)
+            [angle,tip,extrema,bw] = tracklegs(img,leg.mask,leg.borderidx,leg.root,leg.threshint,leg.threshsize,ui.legnormdropdown.Value);
 
             if leg.show.thresh
                 out = overlaythresh(out,colors.leg./2,bw);
@@ -793,53 +234,53 @@ end
         if ~isempty(state.track.abd.root)
             out = insertMarker(out,state.track.abd.root,'s','color',colors.abd);
         end
-        if ~isempty(state.track.wing.root) && trackwingcheck.Value
+        if ~isempty(state.track.wing.root) && ui.trackwingcheck.Value
             out = insertMarker(out,state.track.wing.root(1,:),'s','color',colors.wingL);
             out = insertMarker(out,state.track.wing.root(2,:),'s','color',colors.wingR);
         end
-        if ~isempty(state.track.leg.root) && tracklegcheck.Value
+        if ~isempty(state.track.leg.root) && ui.tracklegcheck.Value
             legline = [state.track.leg.root(1,:) state.track.leg.root(2,:)];
             out = insertShape(out,'Line',legline,'color',colors.leg);
         end
         
         state.vid.dispframe = out;
     end    
-    function showframe()        
-        imagesc(state.vid.ax,state.vid.dispframe);
-        set(state.vid.ax,'TickLength',[0 0]);
+    function showframe()
+        imagesc(vidax,state.vid.dispframe);
+        set(vidax,'TickLength',[0 0]);
     end
 %% program and play control functions
     function closecleanup(h,~)
-        if h==tf && ~state.closing
+        if h==tf && ~closing
             %don't actually close the plot window unless we're actually
             %closing the program
             tf.Visible = 'off';
-            plotwingcheck.Value = false;
-            plotheadcheck.Value = false;
-            plotabdcheck.Value = false;
-            plotlegcheck.Value = false;
-            updateacquisition(plotwingcheck,[]);
-            updateacquisition(plotheadcheck,[]);
-            updateacquisition(plotabdcheck,[]);
-            updateacquisition(plotabdcheck,[]);
+            ui.plotwingcheck.Value = false;
+            ui.plotheadcheck.Value = false;
+            ui.plotabdcheck.Value = false;
+            ui.plotlegcheck.Value = false;
+            updateacquisition(ui.plotwingcheck,[]);
+            updateacquisition(ui.plotheadcheck,[]);
+            updateacquisition(ui.plotabdcheck,[]);
+            updateacquisition(ui.plotabdcheck,[]);
             return
         else
             %which we do by setting this flag and then asking for the close
             %function again
-            state.closing = true;
+            closing = true;
             closereq
         end
         %stop the timer in case the video is playing
-        stop(state.vid.vtimer);
+        stop(vtimer);
         drawnow;%clear the java event stack to force wait for timer stop
+        try delete(cf);catch;end
         try delete(vf);catch;end
         try delete(tf);catch;end
     end
-
     function savedata(b,~)
         fly = buildoutputstruct();
         switch b
-            case exportbutton
+            case ui.exportbutton
                 badvarname = true;
                 while badvarname %loop til we get a cancellation or acceptable variable name
                     varname = inputdlg('Enter name for workspace variable:','',[1 35],{'fly'});
@@ -853,41 +294,34 @@ end
                     if strcmp(over,'No');return;end
                 end
                 assignin('base',varname,fly);
-            case savebutton
+            case ui.savebutton
                 savefilename = [fullfile(state.vid.path,state.vid.basename) '_PROC'];
 %                 savefilename = [savefilename '_flyalyzer' datestr(now,'_yyyymm_hhMMSS_PROC')];
                 uisave('fly',savefilename)
         end
     end
-
     function fly = buildoutputstruct()
         fly = struct;
-        fly.filename = [state.vid.basename state.vid.ext];
-        fly.imagedim = [state.vid.vreader.Height state.vid.vreader.Width];
-        fly.numframes = state.vid.nframes;
-        fly.duration = state.vid.nframes/state.vid.fps;
-        fly.fps = state.vid.fps;
-        fly.timestamps = state.track.ts;
         if isfield(state.track,'orientation')
             %use body orientation to transform kinematics into body-centric
             %coordinates rather than image-centric coordinates
             bodycorrect = state.track.orientation;
         end
-        if trackheadcheck.Value
+        if ui.trackheadcheck.Value
             fly.head.angle = wrapTo360(state.track.head.angle+bodycorrect);
             fly.head.root = state.track.head.root;
         end
-        if trackwingcheck.Value
+        if ui.trackwingcheck.Value
             fly.wingL.angle=wrapTo360(state.track.wing.angle(1,:)+bodycorrect);
             fly.wingL.root = state.track.wing.root(1,:);
             fly.wingR.angle=wrapTo360(state.track.wing.angle(2,:)+bodycorrect);
             fly.wingR.root = state.track.wing.root(2,:);
         end
-        if trackabdcheck.Value
+        if ui.trackabdcheck.Value
             fly.abd.angle = wrapTo360(state.track.abd.angle+bodycorrect);
             fly.abd.root = state.track.abd.root;
         end
-        if tracklegcheck.Value
+        if ui.tracklegcheck.Value
             fly.legL.angle = wrapTo360(state.track.leg.angle(1,:)+bodycorrect);
             fly.legL.tipX = state.track.leg.tip(1,:);
             fly.legL.tipY = state.track.leg.tip(2,:);
@@ -895,27 +329,61 @@ end
             fly.legR.tipX = state.track.leg.tip(3,:);
             fly.legR.tipY = state.track.leg.tip(4,:);
         end
+        fly.timestamps = state.track.ts;
+        fly.numframes = state.vid.nframes;
+        fly.duration = state.vid.nframes/state.vid.fps;
+        fly.fps = state.vid.fps;
+        fly.imageH = vreader.Height;
+        fly.imageW = vreader.Width;
+        fly.filename = [state.vid.basename state.vid.ext];
+        fly.uisettings = state;
     end
-
     function loadbtn(~,~)
-        [fname,pname,fix] = uigetfile({'*.avi;*.mp4'},'Select Video file',state.vid.path);
+% [fname,pname,fix] = uigetfile({'*.avi;*.mp4;*PROC*.mat',...
+%             'Video and Data Files (*.avi, *.mp4, *PROC*.mat)';
+%             '*.avi;*.mp4',...
+%             'Videos (*.avi, *.mp4)';
+%             '*PROC*.mat',...
+%             'Processed Data (*PROC*.mat)'},...
+%             'Select Video or Data file',state.vid.path);
+        [fname,pname,fix] = uigetfile({'*.avi;*.mp4'},'Select Video or Data file',state.vid.path);
         if fix == 0;return;end
         loadvid(fname,pname);
     end
-
     function loadvid(fname,pname)        
-        if strcmp(state.vid.vtimer.Running,'on')
-            stop(state.vid.vtimer);
-            playpause.String = '>';
+        if strcmp(vtimer.Running,'on')
+            stop(vtimer);
+            ui.playpause.String = '>';
         end
-        state.vid.path = pname;
-        [~,state.vid.basename,state.vid.ext] = fileparts(fname);
-        vr = VideoReader(fullfile(pname,fname));
         
+        state.vid.path = pname;
+        [~,basename,fileext] = fileparts(fname);
+%         if strcmp(fileext,'.mat')
+%             fly = struct;
+%             err = false;
+%             try
+%                 load(fullfile(pname,fname));
+%             catch
+%                 err = true;
+%             end
+%             if err || ~isfield(fly,'uisettings')
+%                 msgbox('This is not a useable data file','Invalid Data File','Error');
+%                 return
+%             end
+%             state = fly.uisettings;
+%             vidfname = [fullfile(state.vid.path,state.vid.basename) state.vid.ext];
+%             vreader = VideoReader(vidfname);
+%             set(ui.loadbutton,'Position',[3 432 60 65]);
+%             setframeix(state.vid.ix);
+%             return
+%         end
+        
+        vr = VideoReader(fullfile(pname,fname));
+        state.vid.basename= basename;
+        state.vid.ext = fileext;
         f = 0;
         timeix = [];
         numframes = 0;
-%         progress.Value = 1;
         %             fprintf('Building Frame Index...');
         while hasFrame(vr)
             f = f+1;
@@ -923,11 +391,11 @@ end
             numframes = numframes+1;
             readFrame(vr);
         end
-        progress.Value = 1;
-        progress.Max = numframes;
-        progress.SliderStep = [1/(numframes-1) 1/(numframes-1)];
+        ui.progress.Value = 1;
+        ui.progress.Max = numframes;
+        ui.progress.SliderStep = [1/(numframes-1) 1/(numframes-1)];
         
-        state.vid.vreader = vr;
+        vreader = vr;
         state.vid.timeix = timeix;
         state.vid.nframes = numframes;
         state.vid.width = vr.Width;
@@ -938,37 +406,37 @@ end
         state.vid.curframe = readFrame(vr);
         state.vid.dispframe = state.vid.curframe;
         vr.CurrentTime = timeix(1);
-        set(fpsdisplay,'String',[num2str(state.vid.fps) 'FPS']);
+        set(ui.fpsdisplay,'String',[num2str(state.vid.fps) 'FPS']);
         pos = vf.Position;
         pos(4) = 500;
         pos(3) = 500*state.vid.width/state.vid.height;
         vf.Name = state.vid.basename;
         vf.Position = pos;
         vf.Visible = 'on';
-        state.vid.ax.Position = [0 0 1 1];
-        trackwingcheck.Value = false;
-        trackheadcheck.Value = false;
-        trackabdcheck.Value = false;
-        tracklegcheck.Value = false;
-        updateacquisition(trackwingcheck,[]);
-        updateacquisition(trackheadcheck,[]);
-        updateacquisition(trackabdcheck,[]);
-        updateacquisition(tracklegcheck,[]);
-        updatewingtracking(lockwingscheck,[]);
+        vidax.Position = [0 0 1 1];
+        ui.trackwingcheck.Value = false;
+        ui.trackheadcheck.Value = false;
+        ui.trackabdcheck.Value = false;
+        ui.tracklegcheck.Value = false;
+        updateacquisition(ui.trackwingcheck,[]);
+        updateacquisition(ui.trackheadcheck,[]);
+        updateacquisition(ui.trackabdcheck,[]);
+        updateacquisition(ui.tracklegcheck,[]);
+        updatewingtracking(ui.lockwingscheck,[]);
         
-        vidpanel.Visible = 'on';
-        setuppanel.Visible = 'on';
-        set(loadbutton,'Position',[3 432 60 65]);
-        set(headrootxadjust,'Min',0,'Max',state.vid.width,'Value',0,...
+        ui.vidpanel.Visible = 'on';
+        ui.setuppanel.Visible = 'on';
+        set(ui.loadbutton,'Position',[3 432 60 65]);
+        set(ui.headrootxadjust,'Min',0,'Max',state.vid.width,'Value',0,...
             'SliderStep',[1/state.vid.width 10/state.vid.width],'Enable','off');
-        set(headrootyadjust,'Min',0,'Max',state.vid.height,'Value',0,...
+        set(ui.headrootyadjust,'Min',0,'Max',state.vid.height,'Value',0,...
             'SliderStep',[1/state.vid.width 10/state.vid.height],'Enable','off');
-        set(abdrootxadjust,'Min',0,'Max',state.vid.width,'Value',0,...
+        set(ui.abdrootxadjust,'Min',0,'Max',state.vid.width,'Value',0,...
             'SliderStep',[1/state.vid.width 10/state.vid.width],'Enable','off');
-        set(abdrootyadjust,'Min',0,'Max',state.vid.height,'Value',0,...
+        set(ui.abdrootyadjust,'Min',0,'Max',state.vid.height,'Value',0,...
             'SliderStep',[1/state.vid.width 10/state.vid.height],'Enable','off');
-        headsetdisplay.String = '';
-        abdsetdisplay.String = '';
+        ui.headsetdisplay.String = '';
+        ui.abdsetdisplay.String = '';
         
         state.track.wing.angle = nan(2,numframes);
         state.track.head.angle = nan(1,numframes);
@@ -992,15 +460,15 @@ end
         
         state.showdata = false;
         
-        trackpanel.Visible = 'off';
-        updatewingtracking(lockwingscheck,[]);
+        ui.trackpanel.Visible = 'off';
+        updatewingtracking(ui.lockwingscheck,[]);
         
         if strcmp(tf.Visible,'on');tf.Visible = 'off';end
         setframeix(1);
     end
     function playctrl(h,e)
         switch h
-            case dispframe
+            case ui.dispframe
                 value = inputdlg('Pick Frame:','',[1,30],{num2str(state.vid.ix)});
                 if ~isempty(value) && all(isstrprop(strip(value{1}),'digit'))
                     value = str2num(value{1});
@@ -1012,21 +480,21 @@ end
                 else
                     return
                 end
-            case stopbutton
-                stop(state.vid.vtimer)
+            case ui.stopbutton
+                stop(vtimer)
                 setframeix(1);
-            case playpause
-                if strcmp(state.vid.vtimer.Running,'off')
-                    if progress.Value == progress.Max && ~state.vid.loop
+            case ui.playpause
+                if strcmp(vtimer.Running,'off')
+                    if ui.progress.Value == ui.progress.Max && ~state.vid.loop
                         setframeix(1);
                     else
-                        start(state.vid.vtimer);                                            
+                        start(vtimer);                                            
                     end
                 else
-                    stop(state.vid.vtimer);
+                    stop(vtimer);
                 end
-            case progress
-                setframeix(round(progress.Value));
+            case ui.progress
+                setframeix(round(ui.progress.Value));
             case {datax,lines}
                 if ~strcmp(e.EventName,'Hit');return;end
                 ix=e.IntersectionPoint(1);
@@ -1034,20 +502,20 @@ end
                 if ix<1;ix = 1;end
                 if ix>state.vid.nframes;ix = state.vid.nframes;end
                 setframeix(ix);
-            case loopcheck
+            case ui.loopcheck
                 state.vid.loop = h.Value;
         end
-        if strcmp(state.vid.vtimer.Running,'on')
-            playpause.String = '||';
+        if strcmp(vtimer.Running,'on')
+            ui.playpause.String = '||';
         else
-            playpause.String = '>';    
+            ui.playpause.String = '>';    
         end
     end
 %% acquisition control functions
     function updateacquisition(a,~)
-       c = {trackwingcheck,trackheadcheck,trackabdcheck,tracklegcheck};
-       p = {plotwingcheck,plotheadcheck,plotabdcheck,plotlegcheck};
-       t = {wingtab,headtab,abdtab,legtab};
+       c = {ui.trackwingcheck,ui.trackheadcheck,ui.trackabdcheck,ui.tracklegcheck};
+       p = {ui.plotwingcheck,ui.plotheadcheck,ui.plotabdcheck,ui.plotlegcheck};
+       t = {ui.wingtab,ui.headtab,ui.abdtab,ui.legtab};
        tabchanged = false;
        switch a
            case c
@@ -1067,43 +535,43 @@ end
                    state.showdata = false;
                    tf.Visible = 'Off';
                end
-           case invertcheck
+           case ui.invertcheck
                state.invertbw = a.Value;
-           case headptbutton
+           case ui.headptbutton
                state.track.head.root=pickpt(1);
-           case headrootxadjust
+           case ui.headrootxadjust
                hr = state.track.head.root;
                hr(1) = int16(a.Value);
                state.track.head.root = hr;
-           case headrootyadjust
+           case ui.headrootyadjust
                hr = state.track.head.root;
                hr(2) = int16(state.vid.height-a.Value);
                state.track.head.root = hr;
-           case abdrootxadjust
+           case ui.abdrootxadjust
                ar = state.track.abd.root;
                ar(1) = int16(a.Value);
                state.track.abd.root = ar;
-           case abdrootyadjust
+           case ui.abdrootyadjust
                ar = state.track.abd.root;
                ar(2) = int16(state.vid.height-a.Value);
                state.track.abd.root = ar;
-           case abdptbutton
+           case ui.abdptbutton
                state.track.abd.root=pickpt(1); 
-           case clearheadbutton
-              trackheadcheck.Value = false;
-              updateacquisition(trackheadcheck,[]);
+           case ui.clearheadbutton
+              ui.trackheadcheck.Value = false;
+              updateacquisition(ui.trackheadcheck,[]);
               state.track.head.angle = nan(1,state.vid.nframes);
-           case clearabdbutton
-              trackabdcheck.Value = false;
-              updateacquisition(trackabdcheck,[]);
+           case ui.clearabdbutton
+              ui.trackabdcheck.Value = false;
+              updateacquisition(ui.trackabdcheck,[]);
               state.track.abd.angle = nan(1,state.vid.nframes);
-           case clearwingsbutton
-              trackwingcheck.Value = false;
-              updateacquisition(trackwingcheck,[]);
+           case ui.clearwingsbutton
+              ui.trackwingcheck.Value = false;
+              updateacquisition(ui.trackwingcheck,[]);
               state.track.wing.angle = nan(2,state.vid.nframes);
-           case clearlegsbutton
-              tracklegcheck.Value = false;
-              updateacquisition(tracklegcheck,[]);
+           case ui.clearlegsbutton
+              ui.tracklegcheck.Value = false;
+              updateacquisition(ui.tracklegcheck,[]);
               state.track.leg.angle = nan(2,state.vid.nframes);
               state.track.leg.tip = nan(4,state.vid.nframes);
            otherwise
@@ -1112,19 +580,19 @@ end
        %figure out tabs
         if tabchanged
             for i = 1:length(c)
-               set(t{i},'Parent',tabstorage);
+               set(t{i},'Parent',ui.tabstorage);
                if c{i}.Value
-                   set(t{i},'Parent',tabs);
+                   set(t{i},'Parent',ui.tabs);
                end
             end
             if a.Value
-                tabs.SelectedTab = t{ix};
+                ui.tabs.SelectedTab = t{ix};
             end
         end
         updatetracking();
     end
     function updatefps(~,~)
-            defaultfps = round(state.vid.vreader.FrameRate);
+            defaultfps = round(vreader.FrameRate);
             message = ['Input FPS: (from file: ' num2str(defaultfps) ')'];
 %             message = sprintf(message);
             value = inputdlg(message,'',[1,30],{num2str(state.vid.fps)});
@@ -1132,7 +600,7 @@ end
                 value = str2num(value{1});
                 if value>0
                     state.vid.fps = value;
-                    fpsdisplay.String = [num2str(value) 'FPS'];
+                    ui.fpsdisplay.String = [num2str(value) 'FPS'];
                 else
                     return
                 end
@@ -1143,7 +611,7 @@ end
 %% wing tracking ui functions
     function updatewingtracking(w,~)
         
-        if  any([wingl1adjust,wingl2adjust,wingu1adjust,wingu2adjust]==w)
+        if  any([ui.wingl1adjust,ui.wingl2adjust,ui.wingu1adjust,ui.wingu2adjust]==w)
             boundschanged = true;
             
             %kludge to let us wrap past 0/360 
@@ -1158,149 +626,149 @@ end
         end
         
         switch w
-            case overlaywingscheck
+            case ui.overlaywingscheck
                 state.track.wing.show.thresh = w.Value;
-            case lockwingscheck
+            case ui.lockwingscheck
                 if state.track.wing.lock~=w.Value
                     %don't flip this unless the state actually changes
-                    wingml1adjust.Value = 100-wingml1adjust.Value;
+                    ui.wingml1adjust.Value = 100-ui.wingml1adjust.Value;
                 end 
                 state.track.wing.lock = w.Value;
                 
                 if state.track.wing.lock
                     enset = 'off';
-                    tosync = {wingml1adjust,wingap1adjust,wingt1adjust,...
-                      wingo1adjust,winge1adjust,wingn1adjust,...
-                      wingu1adjust,wingl1adjust};
+                    tosync = {ui.wingml1adjust,ui.wingap1adjust,ui.wingt1adjust,...
+                      ui.wingo1adjust,ui.winge1adjust,ui.wingn1adjust,...
+                      ui.wingu1adjust,ui.wingl1adjust};
                     for ix = 1:length(tosync)
                         updatewingtracking(tosync{ix},[]);
                     end
                 else
                     enset = 'on';                    
                 end
-                wingap2adjust.Enable = enset;
-                wingml2adjust.Enable = enset;
-                wingt2adjust.Enable = enset;
-                wingo2adjust.Enable = enset;
-                winge2adjust.Enable = enset;
-                wingn2adjust.Enable = enset;
-                wingu2adjust.Enable = enset;
-                wingl2adjust.Enable = enset;
+                ui.wingap2adjust.Enable = enset;
+                ui.wingml2adjust.Enable = enset;
+                ui.wingt2adjust.Enable = enset;
+                ui.wingo2adjust.Enable = enset;
+                ui.winge2adjust.Enable = enset;
+                ui.wingn2adjust.Enable = enset;
+                ui.wingu2adjust.Enable = enset;
+                ui.wingl2adjust.Enable = enset;
                 
-            case wingnormdropdown
+            case ui.wingnormdropdown
                 state.track.wing.norm = w.Value;
-            case wingml1adjust
+            case ui.wingml1adjust
                 ml = w.Value;
                 if state.track.wing.lock
                     state.track.wing.ml(2) = ml;
-                    wingml2adjust.Value = ml;
-                    wingml2setdisplay.String = [num2str((ml)) '% rootML'];
+                    ui.wingml2adjust.Value = ml;
+                    ui.wingml2setdisplay.String = [num2str((ml)) '% rootML'];
                 else
                     ml = 100-ml;
                 end
                 state.track.wing.ml(1) = ml;
-                wingml1setdisplay.String = [num2str((ml)) '% rootML'];
+                ui.wingml1setdisplay.String = [num2str((ml)) '% rootML'];
             
-            case wingml2adjust
+            case ui.wingml2adjust
                 state.track.wing.ml(2) = w.Value;
-                wingml2setdisplay.String = [num2str(w.Value*2) '% rootML'];
-            case wingap1adjust
+                ui.wingml2setdisplay.String = [num2str(w.Value*2) '% rootML'];
+            case ui.wingap1adjust
                 ap = w.Value;
                 state.track.wing.ap(1) = ap;
-                wingap1setdisplay.String = [num2str(100-ap) '% rootAP'];
+                ui.wingap1setdisplay.String = [num2str(100-ap) '% rootAP'];
                 if state.track.wing.lock
                     state.track.wing.ap(2) = ap;
-                    wingap2adjust.Value = ap;
-                    wingap2setdisplay.String = [num2str(100-ap) '% rootAP'];
+                    ui.wingap2adjust.Value = ap;
+                    ui.wingap2setdisplay.String = [num2str(100-ap) '% rootAP'];
                 end
-            case wingap2adjust
+            case ui.wingap2adjust
                 state.track.wing.ap(2) = w.Value;
-                wingap2setdisplay.String = [num2str(100-w.Value) '% rootAP'];
-            case wingt1adjust
+                ui.wingap2setdisplay.String = [num2str(100-w.Value) '% rootAP'];
+            case ui.wingt1adjust
                 state.track.wing.thresh(1) = w.Value;
                 if state.track.wing.lock 
                     state.track.wing.thresh(2) = w.Value;
-                    wingt2adjust.Value = w.Value;
-                    wingt2setdisplay.String = [num2str(state.track.wing.thresh(2)*100) '% thresh'];
+                    ui.wingt2adjust.Value = w.Value;
+                    ui.wingt2setdisplay.String = [num2str(state.track.wing.thresh(2)*100) '% thresh'];
                 end
-                wingt1setdisplay.String = [num2str(state.track.wing.thresh(1)*100) '% thresh'];
-            case wingt2adjust
+                ui.wingt1setdisplay.String = [num2str(state.track.wing.thresh(1)*100) '% thresh'];
+            case ui.wingt2adjust
                 state.track.wing.thresh(2) = w.Value;
-                wingt2setdisplay.String = [num2str(state.track.wing.thresh(2)*100) '% thresh'];
-            case wingo1adjust
+                ui.wingt2setdisplay.String = [num2str(state.track.wing.thresh(2)*100) '% thresh'];
+            case ui.wingo1adjust
                 state.track.wing.offset(1) = w.Value;
                 if state.track.wing.lock 
                     state.track.wing.offset(2) = w.Value;
-                    wingo2adjust.Value = w.Value;
-                    wingo2setdisplay.String = [num2str(state.track.wing.offset(2)) 'px offset'];
+                    ui.wingo2adjust.Value = w.Value;
+                    ui.wingo2setdisplay.String = [num2str(state.track.wing.offset(2)) 'px offset'];
                 end
-                wingo1setdisplay.String = [num2str(state.track.wing.offset(1)) 'px offset'];
-            case wingo2adjust
+                ui.wingo1setdisplay.String = [num2str(state.track.wing.offset(1)) 'px offset'];
+            case ui.wingo2adjust
                 state.track.wing.offset(2) = w.Value;
-                wingo2setdisplay.String = [num2str(state.track.wing.offset(2)) 'px offset'];
-            case winge1adjust
+                ui.wingo2setdisplay.String = [num2str(state.track.wing.offset(2)) 'px offset'];
+            case ui.winge1adjust
                 state.track.wing.extent(1) = w.Value;
                 if state.track.wing.lock 
                     state.track.wing.extent(2) = w.Value;
-                    winge2adjust.Value = w.Value;
-                    winge2setdisplay.String = [num2str(state.track.wing.extent(2)) 'px extent'];
+                    ui.winge2adjust.Value = w.Value;
+                    ui.winge2setdisplay.String = [num2str(state.track.wing.extent(2)) 'px extent'];
                 end
-                winge1setdisplay.String = [num2str(state.track.wing.extent(1)) 'px extent'];
-            case winge2adjust
+                ui.winge1setdisplay.String = [num2str(state.track.wing.extent(1)) 'px extent'];
+            case ui.winge2adjust
                 state.track.wing.extent(2) = w.Value;
-                winge2setdisplay.String = [num2str(state.track.wing.extent(2)) 'px extent'];
-            case wingn1adjust
+                ui.winge2setdisplay.String = [num2str(state.track.wing.extent(2)) 'px extent'];
+            case ui.wingn1adjust
                 n=w.Value;
-                wingn1setdisplay.String = [num2str(n) 'px tracked'];
+                ui.wingn1setdisplay.String = [num2str(n) 'px tracked'];
                 if state.track.wing.lock 
                     state.track.wing.npts(2) = n;
-                    wingn2adjust.Value = n;
-                    wingn2setdisplay.String = [num2str(n) 'px tracked'];
+                    ui.wingn2adjust.Value = n;
+                    ui.wingn2setdisplay.String = [num2str(n) 'px tracked'];
                 end
                 state.track.wing.npts(1) = n;
-            case wingn2adjust
+            case ui.wingn2adjust
                 n=w.Value;
                 state.track.wing.npts(2) = n;
-                wingn2setdisplay.String = [num2str(n) 'px tracked'];
-            case wingl1adjust
+                ui.wingn2setdisplay.String = [num2str(n) 'px tracked'];
+            case ui.wingl1adjust
                 l=w.Value;
-                wingl1setdisplay.String = [num2str(360-l) '° lower'];
+                ui.wingl1setdisplay.String = [num2str(360-l) '° lower'];
                 state.track.wing.ltheta(1) = l;
                 if state.track.wing.lock
                     u = wrapTo360(180+(360-l));
-                    wingu2setdisplay.String = [num2str(360-u) '° upper'];
-                    wingu2adjust.Value = u;
+                    ui.wingu2setdisplay.String = [num2str(360-u) '° upper'];
+                    ui.wingu2adjust.Value = u;
                 end
-            case wingl2adjust
+            case ui.wingl2adjust
                 l=w.Value;
                 state.track.wing.ltheta(2) = l;
-                wingl2setdisplay.String = [num2str(360-l) '° lower'];
-            case wingu1adjust
+                ui.wingl2setdisplay.String = [num2str(360-l) '° lower'];
+            case ui.wingu1adjust
                 u=w.Value;
-                wingu1setdisplay.String = [num2str(360-u) '° upper'];
+                ui.wingu1setdisplay.String = [num2str(360-u) '° upper'];
                 state.track.wing.utheta(1) = u;
                 if state.track.wing.lock
                     l = wrapTo360(180+(360-u));
                     state.track.wing.ltheta(2) = l;
-                    wingl2setdisplay.String = [num2str(360-l) '° lower'];
+                    ui.wingl2setdisplay.String = [num2str(360-l) '° lower'];
                 end
-            case wingu2adjust
+            case ui.wingu2adjust
                 u=w.Value;
-                wingu2setdisplay.String = [num2str(360-u) '° upper'];
+                ui.wingu2setdisplay.String = [num2str(360-u) '° upper'];
                 state.track.wing.utheta(2) = u;
         end
         
         if boundschanged
             % check if bounds have reversed
-            if wingu1adjust.Value<=wingl1adjust.Value
-                state.track.wing.utheta(1) = wingu1adjust.Value+360;
+            if ui.wingu1adjust.Value<=ui.wingl1adjust.Value
+                state.track.wing.utheta(1) = ui.wingu1adjust.Value+360;
             else
-                state.track.wing.utheta(1) = wingu1adjust.Value;
+                state.track.wing.utheta(1) = ui.wingu1adjust.Value;
             end
-            if wingu2adjust.Value<=wingl2adjust.Value
-                state.track.wing.utheta(2) = wingu2adjust.Value+360;
+            if ui.wingu2adjust.Value<=ui.wingl2adjust.Value
+                state.track.wing.utheta(2) = ui.wingu2adjust.Value+360;
             else
-                state.track.wing.utheta(2) = wingu2adjust.Value;
+                state.track.wing.utheta(2) = ui.wingu2adjust.Value;
             end
         end
     
@@ -1323,59 +791,38 @@ end
     end
 %% head tracking ui functions
     function updateheadtracking(h,~)
-        
-%         if  any([headladjust,headuadjust]==h)
-%             boundschanged = true;
-%             
-%             if h.Value == -1
-%                 h.Value = 359;
-%             elseif h.Value == 360
-%                 h.Value = 0;
-%             end
-%         else
-%             boundschanged = false;
-%         end
-        
         switch h
-            case headmethoddropdown
+            case ui.headmethoddropdown
                 state.track.head.method = h.Value;
-            case headnormdropdown
+            case ui.headnormdropdown
                 state.track.head.norm = h.Value;
-            case overlayheadcheck
+            case ui.overlayheadcheck
                 state.track.head.show.thresh = h.Value;
-            case headtadjust
+            case ui.headtadjust
                 t=h.Value;
-                headtsetdisplay.String = [num2str(t*100) '% thresh'];
+                ui.headtsetdisplay.String = [num2str(t*100) '% thresh'];
                 state.track.head.thresh = t;
-            case headoadjust
+            case ui.headoadjust
                 o=h.Value;
-                headosetdisplay.String = [num2str(o) 'px offset'];
+                ui.headosetdisplay.String = [num2str(o) 'px offset'];
                 state.track.head.offset = o;
-            case headeadjust
+            case ui.headeadjust
                 e=h.Value;
-                headesetdisplay.String = [num2str(e) 'px extent'];
+                ui.headesetdisplay.String = [num2str(e) 'px extent'];
                 state.track.head.extent = e;
-            case headnadjust
+            case ui.headnadjust
                 n=h.Value;
-                headnsetdisplay.String = [num2str(n) 'px tracked'];
+                ui.headnsetdisplay.String = [num2str(n) 'px tracked'];
                 state.track.head.npts = n;
-            case headladjust
+            case ui.headladjust
                 l=h.Value;
-                headlsetdisplay.String = [num2str(360-l) '° lower'];
+                ui.headlsetdisplay.String = [num2str(360-l) '° lower'];
                 state.track.head.ltheta = l;
-            case headuadjust
+            case ui.headuadjust
                 u=h.Value;
-                headusetdisplay.String = [num2str(360-u) '° upper'];
+                ui.headusetdisplay.String = [num2str(360-u) '° upper'];
                 state.track.head.utheta = u;
         end
-%         if boundschanged
-%             % check if bounds have reversed
-%             if headuadjust.Value<=headladjust.Value
-%                 state.track.head.utheta = headladjust.Value+360;
-%             else
-%                 state.track.head.utheta = headladjust.Value;
-%             end
-%         end
         updatetracking();
     end
     function makeheadmask()
@@ -1392,59 +839,36 @@ end
     end
 %% abdomen tracking ui functions    
     function updateabdtracking(a,~)
-        
-%         if  any([abdladjust,abduadjust]==a)
-%             boundschanged = true;
-%             
-%             if a.Value == -1
-%                 a.Value = 359;
-%             elseif h.Value == 360
-%                 a.Value = 0;
-%             end
-%         else
-%             boundschanged = false;
-%         end
-        
         switch a
-            case abdnormdropdown
+            case ui.abdnormdropdown
                 state.track.abd.norm = a.Value;
-            case overlayabdcheck
+            case ui.overlayabdcheck
                 state.track.abd.show.thresh = a.Value;
-            case abdtadjust
+            case ui.abdtadjust
                 t=a.Value;
-                abdtsetdisplay.String = [num2str(t*100) '% thresh'];
+                ui.abdtsetdisplay.String = [num2str(t*100) '% thresh'];
                 state.track.abd.thresh = t;
-            case abdoadjust
+            case ui.abdoadjust
                 o=a.Value;
-                abdosetdisplay.String = [num2str(o) 'px offset'];
+                ui.abdosetdisplay.String = [num2str(o) 'px offset'];
                 state.track.abd.offset = o;
-            case abdeadjust
+            case ui.abdeadjust
                 e=a.Value;
-                abdesetdisplay.String = [num2str(e) 'px extent'];
+                ui.abdesetdisplay.String = [num2str(e) 'px extent'];
                 state.track.abd.extent = e;
-            case abdnadjust
+            case ui.abdnadjust
                 n=a.Value;
-                abdnsetdisplay.String = [num2str(n) 'px tracked'];
+                ui.abdnsetdisplay.String = [num2str(n) 'px tracked'];
                 state.track.abd.npts = n;
-            case abdladjust
+            case ui.abdladjust
                 l=a.Value;
-                abdlsetdisplay.String = [num2str(360-l) '° lower'];
+                ui.abdlsetdisplay.String = [num2str(360-l) '° lower'];
                 state.track.abd.ltheta = l;
-            case abduadjust
+            case ui.abduadjust
                 u=a.Value;
-                abdusetdisplay.String = [num2str(360-u) '° upper'];
+                ui.abdusetdisplay.String = [num2str(360-u) '° upper'];
                 state.track.abd.utheta = u;
         end
-        
-%         if boundschanged
-%             % check if bounds have reversed
-%             if abduadjust.Value<=abdladjust.Value
-%                 state.track.abd.utheta = abdladjust.Value+360;
-%             else
-%                 state.track.abd.utheta = abdladjust.Value;
-%             end
-%         end
-        
         updatetracking();
     end
     function makeabdmask()
@@ -1459,39 +883,38 @@ end
         state.track.abd.mask = mask;
         state.track.abd.poly = poly;
     end
-
-%% leg tracking callbacks
+%% leg tracking ui functions
     function updatelegtracking(lg,~)
         switch lg
-            case legnormdropdown
+            case ui.legnormdropdown
                 state.track.leg.norm = lg.Value;
-            case overlaylegcheck
+            case ui.overlaylegcheck
                 state.track.leg.show.thresh = lg.Value;
-            case clearlegbordercheck
+            case ui.clearlegbordercheck
                 state.track.leg.clearborder = lg.Value;
-            case legapadjust
+            case ui.legapadjust
                 ap = lg.Value*100;
                 state.track.leg.ap = ap;
-                legapsetdisplay.String = [num2str(100-ap) '% AP'];
-            case legtiadjust
+                ui.legapsetdisplay.String = [num2str(100-ap) '% AP'];
+            case ui.legtiadjust
                 t=lg.Value;
-                legtietdisplay.String = [num2str(t*100) '% threshInt'];
+                ui.legtisetdisplay.String = [num2str(t*100) '% threshInt'];
                 state.track.leg.threshint = t;
-            case legoadjust
+            case ui.legoadjust
                 o=lg.Value;
-                legosetdisplay.String = [num2str(o) 'px offset'];
+                ui.legosetdisplay.String = [num2str(o) 'px offset'];
                 state.track.leg.offset = o;
-            case legeadjust
+            case ui.legeadjust
                 e=lg.Value;
-                legesetdisplay.String = [num2str(e) 'px extent'];
+                ui.legesetdisplay.String = [num2str(e) 'px extent'];
                 state.track.leg.extent = e;
-            case legtsadjust
+            case ui.legtsadjust
                 n=lg.Value;
-                legtssetdisplay.String = [num2str(n) 'px threshSz'];
+                ui.legtssetdisplay.String = [num2str(n) 'px threshSz'];
                 state.track.leg.threshsize = n;
-            case legspnadjust
+            case ui.legspnadjust
                 span=180-lg.Value;
-                legspnsetdisplay.String = [num2str(180-span) '° span'];
+                ui.legspnsetdisplay.String = [num2str(180-span) '° span'];
                 state.track.leg.ltheta = 180+span/2;
                 state.track.leg.utheta = 360-span/2;
         end
@@ -1511,7 +934,7 @@ end
         state.track.leg.poly = poly;
         state.track.leg.borderidx = find(imdilate(bwmorph(mask,'remove'),ones(5)));
     end
-%% plotting functions
+%% plotting function
     function plotdata()
         if ~state.showdata;return;end
         data = [];
@@ -1519,7 +942,7 @@ end
         pcolors = {};
         di = 0;
         correct = state.track.orientation;
-        if plotheadcheck.Value
+        if ui.plotheadcheck.Value
             di = di+1;
             seg = wrapTo360(state.track.head.angle+correct);
             jumpix=abs(diff(seg))>180;
@@ -1528,7 +951,7 @@ end
             titles{di} = 'Head';
             pcolors{di} = colors.head./255;
         end
-        if plotwingcheck.Value
+        if ui.plotwingcheck.Value
             di = di+1;
             seg = wrapTo360(state.track.wing.angle(1,:)+correct);
             jumpix=abs(diff(seg))>180;
@@ -1545,7 +968,7 @@ end
             titles{di} = 'Right Wing';
             pcolors{di} = colors.wingR./255;
         end
-        if plotabdcheck.Value
+        if ui.plotabdcheck.Value
             di = di+1;
             seg = wrapTo360(state.track.abd.angle+correct);
             jumpix=abs(diff(seg))>180;
@@ -1554,7 +977,7 @@ end
             titles{di} = 'Abdomen';
             pcolors{di} = colors.abd./255;
         end
-        if plotlegcheck.Value
+        if ui.plotlegcheck.Value
             di = di+1;
             seg = wrapTo360(state.track.leg.angle(1,:)+correct);
             jumpix=abs(diff(seg))>180;
@@ -1594,45 +1017,614 @@ end
         ylabel(datax,'Angle (°)');
     end
 %% utility functions
+    function state = initializestatevariables()
+        state = struct;
+        state.showdata = false;
+        state.invertbw = false;
+        
+        state.vid.path = pwd;
+        state.vid.basename = '';
+        state.vid.ext = '';
+        state.vid.ix = 1;
+        state.vid.loop = false;
+        
+        state.track.ts = [];
+        
+        state.track.head.angle = [];
+        state.track.head.root = [];
+        state.track.head.mask = [];
+        state.track.head.poly = [];
+        state.track.head.thresh = .6;
+        state.track.head.norm = 1;
+        state.track.head.method = 2;
+        state.track.head.offset = 30;
+        state.track.head.extent = 15;
+        state.track.head.ltheta = 220;
+        state.track.head.utheta = 320;
+        state.track.head.npts = 30;
+        state.track.head.show.pts = true;
+        state.track.head.show.thresh = false;
+        state.track.head.show.poly = true;
+        
+        state.track.abd.angle = [];
+        state.track.abd.root = [];
+        state.track.abd.mask = [];
+        state.track.abd.poly = [];
+        state.track.abd.thresh = .8;
+        state.track.abd.norm = 1;
+        state.track.abd.method = 2;
+        state.track.abd.offset = 50;
+        state.track.abd.extent = 30;
+        state.track.abd.ltheta = 60;
+        state.track.abd.utheta = 120;
+        state.track.abd.npts = 50;
+        state.track.abd.show.pts = true;
+        state.track.abd.show.thresh = false;
+        state.track.abd.show.poly = true;
+        
+        state.track.leg.angle = [];
+        state.track.leg.tip = [];
+        state.track.leg.root = [];
+        state.track.leg.mask = [];
+        state.track.leg.poly = [];
+        state.track.leg.clearborder = true;
+        state.track.leg.borderidx = [];
+        state.track.leg.ap  = 50;
+        state.track.leg.threshint = .4;
+        state.track.leg.threshsize = 150;
+        state.track.leg.norm = 1;
+        state.track.leg.offset = 45;
+        state.track.leg.eccen = 1.75;
+        state.track.leg.extent = 50;
+        state.track.leg.ltheta = 200;
+        state.track.leg.utheta = 340;
+        state.track.leg.show.pts = true;
+        state.track.leg.show.thresh = true;
+        state.track.leg.show.poly = true;
+        
+        state.track.wing.angle = [];
+        state.track.wing.root = [];
+        state.track.wing.mask = [];
+        state.track.wing.poly = [];
+        state.track.wing.ap = [25 25];
+        state.track.wing.ml = [50 50];
+        state.track.wing.thresh = [.1 .1];
+        state.track.wing.norm = 2;
+        state.track.wing.offset = [80 80];
+        state.track.wing.extent = [30 30];
+        state.track.wing.ltheta = [150 275];
+        state.track.wing.utheta = [265 390];
+        state.track.wing.npts = [70 70];
+        state.track.wing.lock = true;
+        state.track.wing.show.pts = true;
+        state.track.wing.show.thresh = true;
+        state.track.wing.show.poly = true;
+    end
+    function ui = initializeuicontrols(ui)
+        %% vidpanel and load button ui init
+        if nargin<1
+            ui = struct;
+        end
+        
+        ui.exportbutton = uicontrol(cf,'Style','pushbutton','String',...
+            'Export to Workspace','Position',[0 0 125 45],'Callback',@savedata);
+        
+        ui.savebutton = uicontrol(cf,'Style','pushbutton','String',...
+            'Save to Disk','Position',[125 0 125 45],'Callback',@savedata);
+        
+        ui.loadbutton = uicontrol(cf,'Style','pushbutton','String',...
+            'Load File','Position',[0 0 250 500],'Callback',@loadbtn);
+        
+        ui.vidpanel = uipanel(cf,'Title',' ','Units','pixels',...
+            'Position',[63 430 187 70],'BorderType','none','Visible','off');
+        
+        ui.playpause = uicontrol(ui.vidpanel,'Style','pushbutton','String',...
+            '>','Position',[2 28 30 40],...
+            'Callback',@playctrl,'Interruptible','on');
+        
+        ui.stopbutton = uicontrol(ui.vidpanel,'Style','pushbutton','String',...
+            '[]','Position',[32 28 20 40],...
+            'Callback',@playctrl);
+        
+        ui.dispframe = uicontrol(ui.vidpanel,'Style', 'edit',...
+            'String','','ButtonDownFcn',@playctrl,...
+            'Position', [54 48 131 20],'Enable','off');
+        
+        ui.progress = uicontrol(ui.vidpanel,'Style','slider', 'Min',1,'Max',2,'Value',1,...
+            'SliderStep',[1/(2-1) 1/(2-1)],...
+            'Position',[54 28 131 20],'Callback',@playctrl);
+        
+        ui.loopcheck = uicontrol(ui.vidpanel,'Style', 'checkbox','String','Loop',...
+            'Position', [3 3 50 20],'Callback',@playctrl);
+        
+        ui.invertcheck = uicontrol(ui.vidpanel,'Style', 'checkbox','String','Invert',...
+            'Value',state.invertbw,'Position', [51 3 60 20],...
+            'Callback',@updateacquisition);
+        
+        ui.fpsdisplay = uicontrol(ui.vidpanel,'Style','edit','Enable','off',...,
+            'String',[],'Position',[102 2 80 20],'ButtonDownFcn',@updatefps);
+        
+        %% acquisition tabs ui init
+        
+        ui.setuppanel = uipanel('Parent', cf, 'Title', '','Visible','off',...
+            'BorderType','none','Units','Pixels','Position',[0 283 250 145]);
+        ui.tabs = uitabgroup('Parent', cf,'Units','Pixels','Visible','off',...
+            'Position',[0 45 250 240]);
+        ui.tabstorage = uitabgroup('Parent',cf,'Visible','off');
+        
+        ui.wingtab = uitab('Parent', ui.tabstorage, 'Title', 'Wings');
+        ui.headtab = uitab('Parent', ui.tabstorage, 'Title', 'Head');
+        ui.abdtab = uitab('Parent', ui.tabstorage, 'Title', 'Abdomen');
+        ui.legtab = uitab('Parent', ui.tabstorage,'Title', 'Legs');
+        
+        %% acquisition control ui init
+        
+        ui.axistitle = uicontrol(ui.setuppanel,'Style', 'text','FontWeight','Bold',...
+            'Position', [5 120 100 20],'String','Define Body Axis');
+        
+        ui.headroottext = uicontrol(ui.setuppanel,'Style', 'text',...
+            'Position', [5 100 60 20],'String','Head Root',...
+            'HorizontalAlignment','right');
+        ui.headsetdisplay = uicontrol(ui.setuppanel,'Style','edit','String',...
+            [],'Position',[90 102 70 20],'Enable','off');
+        
+        ui.headrootxadjust = uicontrol(ui.setuppanel,'Style', 'slider','Value',0,...
+            'Position', [70 102 20 19],'Enable','off','Callback',@updateacquisition);
+        ui.headrootyadjust = uicontrol(ui.setuppanel,'Style', 'slider','Value',0,...
+            'Position', [160 102 20 20],'Enable','off','Callback',@updateacquisition);
+        ui.headptbutton = uicontrol(ui.setuppanel,'Style','pushbutton','String',...
+            'Pick','Position',[190 102 50 20],'Callback',@updateacquisition);
+        
+        ui.abdroottext = uicontrol(ui.setuppanel,'Style', 'text',...
+            'Position', [5 80 60 20],'String','Abd. Root',...
+            'HorizontalAlignment','right');
+        ui.abdsetdisplay = uicontrol(ui.setuppanel,'Style','edit','String',...
+            [],'Position',[90 82 70 20],'Enable','off');
+        ui.abdrootxadjust = uicontrol(ui.setuppanel,'Style', 'slider','Value',0,...
+            'Position', [70 82 20 19],'Enable','off','Callback',@updateacquisition);
+        ui.abdrootyadjust = uicontrol(ui.setuppanel,'Style', 'slider','Value',0,...
+            'Position', [160 82 20 20],'Enable','off','Callback',@updateacquisition);
+        ui.abdptbutton = uicontrol(ui.setuppanel,'Style','pushbutton','String',...
+            'Pick','Position',[190 82 50 20],'Callback',@updateacquisition);
+        
+        ui.trackpanel = uipanel(ui.setuppanel,'Units','pixels','Title','Track Body Parts',...
+            'FontWeight','bold','Position',[3 3 243 76],'Visible','off');
+        
+        ui.tracktext = uicontrol(ui.trackpanel,'Style', 'text',...
+            'Position', [7 25 40 15],'String','Track:',...
+            'HorizontalAlignment','right');
+        
+        ui.plottext = uicontrol(ui.trackpanel,'Style', 'text',...
+            'Position', [7 5 40 15],'String','Plot:',...
+            'HorizontalAlignment','right');
+        
+        ui.trackwingtext = uicontrol(ui.trackpanel,'Style', 'text',...
+            'Position', [55 37 50 20],'String','Wings',...
+            'HorizontalAlignment','left');
+        ui.trackwingcheck = uicontrol(ui.trackpanel,'Style', 'checkbox',...
+            'Position', [65 23 20 20],'Callback',@updateacquisition);
+        ui.plotwingcheck = uicontrol(ui.trackpanel,'Style', 'checkbox',...
+            'Position', [65 3 20 20],'Callback',@updateacquisition);
+        
+        ui.trackheadtext = uicontrol(ui.trackpanel,'Style', 'text',...
+            'Position', [109 37 50 20],'String','Head',...
+            'HorizontalAlignment','left');
+        ui.trackheadcheck = uicontrol(ui.trackpanel,'Style', 'checkbox',...
+            'Position', [114 23 20 20],'Callback',@updateacquisition);
+        ui.plotheadcheck = uicontrol(ui.trackpanel,'Style', 'checkbox',...
+            'Position', [114 3 20 20],'Callback',@updateacquisition);
+        
+        ui.trackabdtext = uicontrol(ui.trackpanel,'Style', 'text',...
+            'Position', [148 37 50 20],'String','Abdomen',...
+            'HorizontalAlignment','left');
+        ui.trackabdcheck = uicontrol(ui.trackpanel,'Style', 'checkbox',...
+            'Position', [163 23 20 20],'Callback',@updateacquisition);
+        ui.plotabdcheck = uicontrol(ui.trackpanel,'Style', 'checkbox',...
+            'Position', [163 3 20 20],'Callback',@updateacquisition);
+        
+        ui.tracklegtext = uicontrol(ui.trackpanel,'Style', 'text',...
+            'Position', [209 37 50 20],'String','Legs',...
+            'HorizontalAlignment','left');
+        ui.tracklegcheck = uicontrol(ui.trackpanel,'Style', 'checkbox',...
+            'Position', [212 23 20 20],'Callback',@updateacquisition);
+        ui.plotlegcheck = uicontrol(ui.trackpanel,'Style', 'checkbox',...
+            'Position', [212 3 20 20],'Callback',@updateacquisition);
+        
+        %% wing tracking ui init
+        
+        ui.leftwingtext = uicontrol(ui.wingtab,'Style', 'text',...
+            'Position', [33 190 70 20],'String','Left Wing',...
+            'FontWeight','bold','HorizontalAlignment','left');
+        
+        ui.rightwingtext = uicontrol(ui.wingtab,'Style', 'text',...
+            'Position', [158 190 70 20],'String','Right Wing',...
+            'FontWeight','bold','HorizontalAlignment','left');
+        
+        ui.wingnormdropdown = uicontrol(ui.wingtab,'Style','popupmenu','String',...
+            {'no norm','ROI norm','Full norm'},'Tooltip','Histogram Normalization Options',...
+            'Value',state.track.wing.norm,'Position',[3 7 70 17],...
+            'Callback',@updatewingtracking);
+        
+        ui.overlaywingscheck = uicontrol(ui.wingtab,'Style','checkbox','String',...
+            'BW','Value',state.track.wing.show.thresh,'Tooltip','Overlay Thresholded ROI',...
+            'Position', [80 3 60 20],'Callback',@updatewingtracking);
+        
+        ui.lockwingscheck = uicontrol(ui.wingtab,'Style', 'checkbox','String',...
+            'Sync','Value',state.track.wing.lock,'Tooltip','Sync Left and Right Wing Settings',...
+            'Position', [130 3 60 20],'Callback',@updatewingtracking);
+        
+        ui.clearwingsbutton = uicontrol(ui.wingtab,'Style','pushbutton','String',...
+            'Clear Data','Position',[180 1 63 24],'Callback',@updateacquisition);
+        
+        ui.wingap1adjust = uicontrol(ui.wingtab,'Style', 'slider',...
+            'Value',state.track.wing.ap(1),'Position', [3 173 20 20],...
+            'Min',0,'Max',100,'SliderStep',[1/100, 1/100],...
+            'Callback',@updatewingtracking);
+        ui.wingap2adjust = uicontrol(ui.wingtab,'Style', 'slider',...
+            'Value',state.track.wing.ap(2),'Position', [128 173 20 20],...
+            'Min',0,'Max',100,'SliderStep',[1/100, 1/100],...
+            'Callback',@updatewingtracking);
+        ui.wingap1setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
+            [num2str(ui.wingap1adjust.Value) '% rootAP'],...
+            'Position',[23 173 95 20],'Enable','off');
+        ui.wingap2setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
+            [num2str(ui.wingap2adjust.Value) '% rootAP'],...
+            'Position',[148 173 95 20],'Enable','off');
+        
+        ui.wingml1adjust = uicontrol(ui.wingtab,'Style', 'slider',...
+            'Value',state.track.wing.ml(1),'Position', [3 152 20 19],...
+            'Min',0,'Max',100,'SliderStep',[1/100, 1/100],...
+            'Callback',@updatewingtracking);
+        ui.wingml2adjust = uicontrol(ui.wingtab,'Style', 'slider',...
+            'Value',state.track.wing.ml(2),'Position', [128 152 20 19],...
+            'Min',0,'Max',100,'SliderStep',[2/100, 2/100],...
+            'Callback',@updatewingtracking);
+        ui.wingml1setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
+            [num2str(ui.wingml1adjust.Value) '% rootML'],...
+            'Position',[23 152 95 20],'Enable','off');
+        ui.wingml2setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
+            [num2str(ui.wingml2adjust.Value) '% rootML'],...
+            'Position',[148 152 95 20],'Enable','off');
+        
+        
+        ui.wingt1setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
+            [num2str(state.track.wing.thresh(1)*100) '% thresh'],...
+            'Position',[23 131 95 20],'Enable','off');
+        ui.wingt2setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
+            [num2str(state.track.wing.thresh(2)*100) '% thresh'],...
+            'Position',[148 131 95 20],'Enable','off');
+        ui.wingt1adjust = uicontrol(ui.wingtab,'Style', 'slider',...
+            'Value',state.track.wing.thresh(1),'Position', [3 131 20 20],...
+            'Min',0,'Max',1,'SliderStep',[1/100, 1/10],...
+            'Callback',@updatewingtracking);
+        ui.wingt2adjust = uicontrol(ui.wingtab,'Style', 'slider',...
+            'Value',state.track.wing.thresh(2),'Position', [128 131 20 20],...
+            'Min',0,'Max',1,'SliderStep',[1/100, 1/10],...
+            'Callback',@updatewingtracking);
+        
+        ui.wingo1setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
+            [num2str(state.track.wing.offset(1)) 'px offset'],...
+            'Position',[23 110 95 20],'Enable','off');
+        ui.wingo2setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
+            [num2str(state.track.wing.offset(2)) 'px offset'],...
+            'Position',[148 110 95 20],'Enable','off');
+        ui.wingo1adjust = uicontrol(ui.wingtab,'Style', 'slider',...
+            'Value',state.track.wing.offset(1),'Position', [3 110 20 20],...
+            'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
+            'Callback',@updatewingtracking);
+        ui.wingo2adjust = uicontrol(ui.wingtab,'Style', 'slider',...
+            'Value',state.track.wing.offset(2),'Position', [128 110 20 20],...
+            'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
+            'Callback',@updatewingtracking);
+        
+        ui.winge1setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
+            [num2str(state.track.wing.extent(1)) 'px extent'],...
+            'Position',[23 89 95 20],'Enable','off');
+        ui.winge2setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
+            [num2str(state.track.wing.extent(2)) 'px extent'],...
+            'Position',[148 89 95 20],'Enable','off');
+        ui.winge1adjust = uicontrol(ui.wingtab,'Style', 'slider',...
+            'Value',state.track.wing.extent(1),'Position', [3 89 20 20],...
+            'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
+            'Callback',@updatewingtracking);
+        ui.winge2adjust = uicontrol(ui.wingtab,'Style', 'slider',...
+            'Value',state.track.wing.extent(2),'Position', [128 89 20 20],...
+            'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
+            'Callback',@updatewingtracking);
+        
+        ui.wingn1setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
+            [num2str(state.track.wing.npts(1)) 'px tracked'],...
+            'Position',[23 68 95 20],'Enable','off');
+        ui.wingn2setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
+            [num2str(state.track.wing.npts(2)) 'px tracked'],...
+            'Position',[148 68 95 20],'Enable','off');
+        ui.wingn1adjust = uicontrol(ui.wingtab,'Style', 'slider',...
+            'Value',state.track.wing.npts(1),'Position', [3 68 20 20],...
+            'Min',0,'Max',400,'SliderStep',[1/400, 1/40],...
+            'Callback',@updatewingtracking);
+        ui.wingn2adjust = uicontrol(ui.wingtab,'Style', 'slider',...
+            'Value',state.track.wing.npts(2),'Position', [128 68 20 20],...
+            'Min',0,'Max',400,'SliderStep',[1/400, 1/40],...
+            'Callback',@updatewingtracking);
+        
+        ui.wingu1setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
+            [num2str(360-state.track.wing.utheta(1)) '° upper'],...
+            'Position',[23 47 95 20],'Enable','off');
+        ui.wingl2setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
+            [num2str(360-state.track.wing.ltheta(2)) '° lower'],...
+            'Position',[148 47 95 20],'Enable','off');
+        ui.wingu1adjust = uicontrol(ui.wingtab,'Style', 'slider',...
+            'Value',state.track.wing.utheta(1),'Position', [3 47 20 19],...
+            'Min',-1,'Max',360,'SliderStep',[1/361, 1/361],...
+            'Callback',@updatewingtracking);
+        ui.wingl2adjust = uicontrol(ui.wingtab,'Style', 'slider',...
+            'Value',state.track.wing.ltheta(2),'Position', [128 47 20 19],...
+            'Min',-1,'Max',360,'SliderStep',[1/361, 1/361],...
+            'Callback',@updatewingtracking);
+        
+        ui.wingl1setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
+            [num2str(360-state.track.wing.ltheta(1)) '° lower'],...
+            'Position',[23 26 95 20],'Enable','off');
+        ui.wingu2setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
+            [num2str(wrapTo360(360-state.track.wing.utheta(2))) '° upper'],...
+            'Position',[148 26 95 20],'Enable','off');
+        ui.wingl1adjust = uicontrol(ui.wingtab,'Style', 'slider',...
+            'Value',state.track.wing.ltheta(1),'Position', [3 26 20 19],...
+            'Min',-1,'Max',360,'SliderStep',[1/361, 1/361],...
+            'Callback',@updatewingtracking);
+        ui.wingu2adjust = uicontrol(ui.wingtab,'Style', 'slider',...
+            'Value',state.track.wing.utheta(2)-360,'Position', [128 26 20 19],...
+            'Min',-1,'Max',360,'SliderStep',[1/361, 1/361],...
+            'Callback',@updatewingtracking);
+        
+        %% head tracking ui init
+        
+        ui.headmethodtext = uicontrol(ui.headtab,'Style','text','FontWeight','Bold',...
+            'Position', [154 174 90 30],'String','Tip-Tracking Method');
+        
+        ui.headmethoddropdown = uicontrol(ui.headtab,'Style','popupmenu','String',...
+            {'distribution','k-means'},'Value',state.track.head.method,...
+            'Position',[159 151 80 22],'Callback',@updateheadtracking);
+        
+        ui.headnormtext = uicontrol(ui.headtab,'Style', 'text','FontWeight','Bold',...
+            'Position', [154 109 90 30],'String','Histogram Normalization');
+        
+        ui.headnormdropdown = uicontrol(ui.headtab,'Style','popupmenu','String',...
+            {'none','ROI only','full image'},'Value',state.track.head.norm,...
+            'Position',[159 86 80 22],'Callback',@updateheadtracking);
+        
+        ui.overlayheadcheck = uicontrol(ui.headtab,'Style','checkbox','String',...
+            'Overlay BW','Value',state.track.head.show.thresh,...,
+            'Tooltip','Overlay Thresholded ROI',...
+            'Position', [159 64 80 20],'Callback',@updateheadtracking);
+        
+        ui.clearheadbutton = uicontrol(ui.headtab,'Style','pushbutton','String',...
+            'Clear Data','Position',[159 6 80 50],'Callback',@updateacquisition);
+        
+        ui.headtsetdisplay = uicontrol(ui.headtab,'Style','edit','String',...
+            [num2str(state.track.head.thresh*100) '% thresh'],...
+            'Position',[33 176 120 30],'Enable','off');
+        ui.headtadjust = uicontrol(ui.headtab,'Style', 'slider',...
+            'Value',state.track.head.thresh,'Position', [3 176 30 30],...
+            'Min',0,'Max',1,'SliderStep',[1/100, 1/10],...
+            'Callback',@updateheadtracking);
+        
+        ui.headosetdisplay = uicontrol(ui.headtab,'Style','edit','String',...
+            [num2str(state.track.head.offset) 'px offset'],...
+            'Position',[33 142 120 30],'Enable','off');
+        ui.headoadjust = uicontrol(ui.headtab,'Style', 'slider',...
+            'Value',state.track.head.offset,'Position', [3 142 30 30],...
+            'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
+            'Callback',@updateheadtracking);
+        
+        ui.headesetdisplay = uicontrol(ui.headtab,'Style','edit','String',...
+            [num2str(state.track.head.extent) 'px extent'],...
+            'Position',[33 108 120 30],'Enable','off');
+        ui.headeadjust = uicontrol(ui.headtab,'Style', 'slider',...
+            'Value',state.track.head.extent,'Position', [3 108 30 30],...
+            'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
+            'Callback',@updateheadtracking);
+        
+        ui.headnsetdisplay = uicontrol(ui.headtab,'Style','edit','String',...
+            [num2str(state.track.head.npts) 'px tracked'],...
+            'Position',[33 74 120 30],'Enable','off');
+        ui.headnadjust = uicontrol(ui.headtab,'Style', 'slider',...
+            'Value',state.track.head.npts,'Position', [3 74 30 30],...
+            'Min',0,'Max',400,'SliderStep',[1/400, 1/40],...
+            'Callback',@updateheadtracking);
+        
+        ui.headusetdisplay = uicontrol(ui.headtab,'Style','edit','String',...
+            [num2str(360-state.track.head.utheta) '° upper'],...
+            'Position',[33 40 120 30],'Enable','off');
+        ui.headuadjust = uicontrol(ui.headtab,'Style', 'slider',...
+            'Value',state.track.head.utheta,'Position', [3 40 30 29],...
+            'Min',270,'Max',360,'SliderStep',[1/90, 1/9],...
+            'Callback',@updateheadtracking);
+        
+        ui.headlsetdisplay = uicontrol(ui.headtab,'Style','edit','String',...
+            [num2str(360-state.track.head.ltheta) '° lower'],...
+            'Position',[33 6 120 30],'Enable','off');
+        ui.headladjust = uicontrol(ui.headtab,'Style', 'slider',...
+            'Value',state.track.head.ltheta,'Position', [3 6 30 29],...
+            'Min',180,'Max',270,'SliderStep',[1/90, 1/90],...
+            'Callback',@updateheadtracking);
+        
+        %% abdomen tracking ui init
+        
+        ui.abdnormtext = uicontrol(ui.abdtab,'Style', 'text','FontWeight','Bold',...
+            'Position', [154 174 90 30],'String','Histogram Normalization');
+        
+        ui.abdnormdropdown = uicontrol(ui.abdtab,'Style','popupmenu','String',...
+            {'none','ROI only','full image'},'Value',state.track.abd.norm,...
+            'Position',[159 151 80 22],'Callback',@updateabdtracking);
+        
+        ui.overlayabdcheck = uicontrol(ui.abdtab,'Style','checkbox','String',...
+            'Overlay BW','Value',state.track.abd.show.thresh,...,
+            'Tooltip','Overlay Thresholded ROI',...
+            'Position', [159 129 80 20],'Callback',@updateabdtracking);
+        
+        ui.clearabdbutton = uicontrol(ui.abdtab,'Style','pushbutton','String',...
+            'Clear Data','Position',[159 6 80 50],'Callback',@updateacquisition);
+        
+        ui.abdtsetdisplay = uicontrol(ui.abdtab,'Style','edit','String',...
+            [num2str(state.track.abd.thresh*100) '% thresh'],...
+            'Position',[33 176 120 30],'Enable','off');
+        ui.abdtadjust = uicontrol(ui.abdtab,'Style', 'slider',...
+            'Value',state.track.abd.thresh,'Position', [3 176 30 30],...
+            'Min',0,'Max',1,'SliderStep',[1/100, 1/10],...
+            'Callback',@updateabdtracking);
+        
+        ui.abdosetdisplay = uicontrol(ui.abdtab,'Style','edit','String',...
+            [num2str(state.track.abd.offset) 'px offset'],...
+            'Position',[33 142 120 30],'Enable','off');
+        ui.abdoadjust = uicontrol(ui.abdtab,'Style', 'slider',...
+            'Value',state.track.abd.offset,'Position', [3 142 30 30],...
+            'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
+            'Callback',@updateabdtracking);
+        
+        ui.abdesetdisplay = uicontrol(ui.abdtab,'Style','edit','String',...
+            [num2str(state.track.abd.extent) 'px extent'],...
+            'Position',[33 108 120 30],'Enable','off');
+        ui.abdeadjust = uicontrol(ui.abdtab,'Style', 'slider',...
+            'Value',state.track.abd.extent,'Position', [3 108 30 30],...
+            'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
+            'Callback',@updateabdtracking);
+        
+        ui.abdnsetdisplay = uicontrol(ui.abdtab,'Style','edit','String',...
+            [num2str(state.track.abd.npts) 'px tracked'],...
+            'Position',[33 74 120 30],'Enable','off');
+        ui.abdnadjust = uicontrol(ui.abdtab,'Style', 'slider',...
+            'Value',state.track.abd.npts,'Position', [3 74 30 30],...
+            'Min',0,'Max',1000,'SliderStep',[1/1000, 1/100],...
+            'Callback',@updateabdtracking);
+        
+        ui.abdusetdisplay = uicontrol(ui.abdtab,'Style','edit','String',...
+            [num2str(360-state.track.abd.utheta) '° upper'],...
+            'Position',[33 40 120 30],'Enable','off');
+        ui.abduadjust = uicontrol(ui.abdtab,'Style', 'slider',...
+            'Value',state.track.abd.utheta,'Position', [3 40 30 29],...
+            'Min',90,'Max',180,'SliderStep',[1/90, 1/9],...
+            'Callback',@updateabdtracking);
+        
+        ui.abdlsetdisplay = uicontrol(ui.abdtab,'Style','edit','String',...
+            [num2str(360-state.track.abd.ltheta) '° lower'],...
+            'Position',[33 6 120 30],'Enable','off');
+        ui.abdladjust = uicontrol(ui.abdtab,'Style', 'slider',...
+            'Value',state.track.abd.ltheta,'Position', [3 6 30 29],...
+            'Min',0,'Max',90,'SliderStep',[1/90, 1/90],...
+            'Callback',@updateabdtracking);
+        
+        %% leg tracking ui init
+        
+        ui.legnormtext = uicontrol(ui.legtab,'Style', 'text','FontWeight','Bold',...
+            'Position', [154 174 90 30],'String','Histogram Normalization');
+        
+        ui.legnormdropdown = uicontrol(ui.legtab,'Style','popupmenu','String',...
+            {'none','ROI only','full image'},'Value',state.track.leg.norm,...
+            'Position',[159 151 80 22],'Callback',@updatelegtracking);
+        
+        ui.overlaylegcheck = uicontrol(ui.legtab,'Style','checkbox','String',...
+            'Overlay BW','Value',state.track.leg.show.thresh,...,
+            'Tooltip','Overlay Thresholded ROI',...
+            'Position', [159 129 80 20],'Callback',@updatelegtracking);
+        
+        ui.clearlegbordercheck = uicontrol(ui.legtab,'Style','checkbox','String',...
+            sprintf('Clear Border'),'Value',state.track.leg.clearborder,...,
+            'Tooltip','Do not track blobs with majority of extrema on ROI border',...
+            'Position', [159 102 80 20],'Callback',@updatelegtracking);
+        
+        ui.clearlegsbutton = uicontrol(ui.legtab,'Style','pushbutton','String',...
+            'Clear Data','Position',[159 6 80 50],'Callback',@updateacquisition);
+        
+        ui.legtisetdisplay = uicontrol(ui.legtab,'Style','edit','String',...
+            [num2str(state.track.leg.threshint*100) '% threshInt'],...
+            'Position',[33 176 120 30],'Enable','off');
+        ui.legtiadjust = uicontrol(ui.legtab,'Style', 'slider',...
+            'Value',state.track.leg.threshint,'Position', [3 176 30 30],...
+            'Min',0,'Max',1,'SliderStep',[1/100, 1/10],...
+            'Callback',@updatelegtracking);
+        
+        ui.legtssetdisplay = uicontrol(ui.legtab,'Style','edit','String',...
+            [num2str(state.track.leg.threshsize) 'px threshSz'],...
+            'Position',[33 142 120 30],'Enable','off');
+        ui.legtsadjust = uicontrol(ui.legtab,'Style', 'slider',...
+            'Value',state.track.leg.threshsize,'Position', [3 142 30 30],...
+            'Min',0,'Max',1000,'SliderStep',[1/1000, 1/100],...
+            'Callback',@updatelegtracking);
+        
+        ui.legapsetdisplay = uicontrol(ui.legtab,'Style','edit','String',...
+            [num2str(100-state.track.leg.ap) '% AP'],...
+            'Position',[33 108 120 30],'Enable','off');
+        ui.legapadjust = uicontrol(ui.legtab,'Style', 'slider',...
+            'Value',state.track.leg.ap/100,'Position', [3 108 30 30],...
+            'Min',0,'Max',1,'SliderStep',[1/100, 1/10],...
+            'Callback',@updatelegtracking);
+        
+        ui.legosetdisplay = uicontrol(ui.legtab,'Style','edit','String',...
+            [num2str(state.track.leg.offset) 'px offset'],...
+            'Position',[33 74 120 30],'Enable','off');
+        ui.legoadjust = uicontrol(ui.legtab,'Style', 'slider',...
+            'Value',state.track.leg.offset,'Position', [3 74 30 30],...
+            'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
+            'Callback',@updatelegtracking);
+        
+        ui.legesetdisplay = uicontrol(ui.legtab,'Style','edit','String',...
+            [num2str(state.track.leg.extent) 'px extent'],...
+            'Position',[33 40 120 30],'Enable','off');
+        ui.legeadjust = uicontrol(ui.legtab,'Style', 'slider',...
+            'Value',state.track.leg.extent,'Position', [3 40 30 30],...
+            'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
+            'Callback',@updatelegtracking);
+        
+        span = state.track.leg.utheta-state.track.leg.ltheta;
+        ui.legspnsetdisplay = uicontrol(ui.legtab,'Style','edit','String',...
+            [num2str(360-span) '° span'],...
+            'Position',[33 6 120 30],'Enable','off');
+        ui.legspnadjust = uicontrol(ui.legtab,'Style', 'slider',...
+            'Value',span,'Position', [3 6 30 29],...
+            'Min',0,'Max',180,'SliderStep',[1/180, 1/180],...
+            'Callback',@updatelegtracking);
+    end
+    %function called when tracking parameters change
     function updatetracking()
         if ~isempty(state.track.head.root)
             hr = state.track.head.root;
-            headrootxadjust.Enable = 'on';
-            headrootxadjust.Value = hr(1);
-            headrootyadjust.Enable = 'on';
-            headrootyadjust.Value = state.vid.height-hr(2);
-            headsetdisplay.String = ['x=' num2str(hr(1)) ' y=' num2str(hr(2))];            
+            ui.headrootxadjust.Enable = 'on';
+            ui.headrootxadjust.Value = hr(1);
+            ui.headrootyadjust.Enable = 'on';
+            ui.headrootyadjust.Value = state.vid.height-hr(2);
+            ui.headsetdisplay.String = ['x=' num2str(hr(1)) ' y=' num2str(hr(2))];            
         end
         if ~isempty(state.track.abd.root)
             ar = state.track.abd.root;
-            abdrootxadjust.Enable = 'on';
-            abdrootxadjust.Value = ar(1);
-            abdrootyadjust.Enable = 'on';
-            abdrootyadjust.Value = state.vid.height-ar(2);
-            abdsetdisplay.String = ['x=' num2str(ar(1)) ' y=' num2str(ar(2))];            
+            ui.abdrootxadjust.Enable = 'on';
+            ui.abdrootxadjust.Value = ar(1);
+            ui.abdrootyadjust.Enable = 'on';
+            ui.abdrootyadjust.Value = state.vid.height-ar(2);
+            ui.abdsetdisplay.String = ['x=' num2str(ar(1)) ' y=' num2str(ar(2))];            
         end
         if ~isempty(state.track.abd.root) && ~isempty(state.track.head.root)
-            trackpanel.Visible = 'on';
-            if ~isempty(findobj('Parent',tabs))
-                tabs.Visible = 'on';
+            ui.trackpanel.Visible = 'on';
+            if ~isempty(findobj('Parent',ui.tabs))
+                ui.tabs.Visible = 'on';
             else
-                tabs.Visible = 'off';
+                ui.tabs.Visible = 'off';
             end           
-            calcbodyaxiswingroots;
+            calcbodypoints;
             makewingmask;
             makeheadmask;
             makeabdmask;
             makelegmask;
         end
         
-        if strcmp(state.vid.vtimer.Running,'off')
+        if strcmp(vtimer.Running,'off')
             processframe();
             showframe();
             plotdata();
         end
     end
-
-    function calcbodyaxiswingroots()
+    %calculate body control points
+    function calcbodypoints()
         ar = double(state.track.abd.root);
         hr = double(state.track.head.root);
         state.track.orientation = atan2d(ar(2)-hr(2),ar(1)-hr(1))-90;
@@ -1668,7 +1660,7 @@ end
         lr(2,2) = wc(2)-(ml)*cosd(state.track.orientation+90);
         state.track.leg.root = lr; 
     end
-
+    %wing tracking function
     function [angle, pts, bw] = trackborder(img,mask,root,thresh,norm,npts,side)
         if sum(sum((mask)))==0
             angle = nan;
@@ -1726,6 +1718,7 @@ end
             end
         end
     end
+    %head/abd tracking function
     function [angle,pts,bw] = tracktip(img,mask,root,thresh,norm,npts,mode,arg)
         if nargin<7 || isempty(mode)
             mode = 1;
@@ -1795,9 +1788,8 @@ end
             end
         end
     end
-
     %leg tracking function
-    function [angle,tip,extrema,bw] = tracklegs(img,mask,borderlin,roots,threshint,threshsize,norm)        
+    function [angle,tip,extrema,bw] = tracklegs(img,mask,borderlin,roots,threshint,threshsize,norm)
         roots = double(roots);
         img = rgb2gray(img);
        if norm == 2 % normalize tracking ROI only
@@ -1894,7 +1886,7 @@ end
             end
 %         end
     end
-
+    %make ROI function
     function [mask, poly] = make_arc_mask(centx,centy,r1,r2,theta1,theta2,w,h,majax,minax,shift)
         %assume a circle if no major/minor axes provided
         if nargin<11;shift = 0;end
@@ -1939,11 +1931,12 @@ end
         poly = [xvals(:)';yvals(:)']; %define as rows, pair as two columns
         poly = poly(:)'; %flatten then flip back to one row.
     end
+    %pick point in image
     function pt = pickpt(n)
         if nargin<1
             n = 1;
         end
-        axes(state.vid.ax);
+        axes(vidax);
         h = get(0,'ScreenSize');
         h = h(4);
         mouse.mouseMove(vf.Position(1)+vf.Position(3)/2,...
@@ -1951,9 +1944,11 @@ end
         pt = int16(ginput(n));
         pt = double(pt);
     end
-    function rgb = overlaythresh(rgb,color,bw)        
+    %overlay threshold onto image
+    function rgb = overlaythresh(rgb,color,bw)
         rgb = imoverlay(rgb,bw,color./255);
     end
+    %make colors
     function col = getcolors(ix)
         % declare color schemes
         i = 0; %have an index to manually iterate for easier copy/pasting
