@@ -76,7 +76,7 @@ end
     end
     function processframe()
         img = state.vid.curframe;
-        if state.invertbw;img = imcomplement(img);end        
+        if state.vid.invertbw;img = imcomplement(img);end        
         out = img;
         if ~isempty(state.track.abd.root) && ~isempty(state.track.head.root)      
             wing = state.track.wing;
@@ -308,27 +308,47 @@ end
             bodycorrect = state.track.orientation;
         end
         if ui.trackheadcheck.Value
+            state.track.head.check = true;
             fly.head.angle = wrapTo360(state.track.head.angle+bodycorrect);
             fly.head.root = state.track.head.root;
+        else
+            state.track.head.check = false;
         end
+        state.track.head.show.check = ui.plotheadcheck.Value;
+        
         if ui.trackwingcheck.Value
+            state.track.wing.check = true;
             fly.wingL.angle=wrapTo360(state.track.wing.angle(1,:)+bodycorrect);
             fly.wingL.root = state.track.wing.root(1,:);
             fly.wingR.angle=wrapTo360(state.track.wing.angle(2,:)+bodycorrect);
             fly.wingR.root = state.track.wing.root(2,:);
+        else
+            state.track.wing.check = false;
         end
+        state.track.wing.show.check = ui.plotwingcheck.Value;
+
         if ui.trackabdcheck.Value
+            state.track.abd.check = true;
             fly.abd.angle = wrapTo360(state.track.abd.angle+bodycorrect);
             fly.abd.root = state.track.abd.root;
+        else
+            state.track.abd.check = false;
         end
+        state.track.abd.show.check = ui.plotabdcheck.Value;
+        
         if ui.tracklegcheck.Value
+            state.track.leg.check = true;
             fly.legL.angle = wrapTo360(state.track.leg.angle(1,:)+bodycorrect);
             fly.legL.tipX = state.track.leg.tip(1,:);
             fly.legL.tipY = state.track.leg.tip(2,:);
             fly.legR.angle = wrapTo360(state.track.leg.angle(2,:)+bodycorrect);
             fly.legR.tipX = state.track.leg.tip(3,:);
             fly.legR.tipY = state.track.leg.tip(4,:);
+        else
+            state.track.leg.check = false;
         end
+        state.track.leg.show.check = ui.plotlegcheck.Value;
+        
         fly.timestamps = state.track.ts;
         fly.numframes = state.vid.nframes;
         fly.duration = state.vid.nframes/state.vid.fps;
@@ -339,17 +359,19 @@ end
         fly.uisettings = state;
     end
     function loadbtn(~,~)
-% [fname,pname,fix] = uigetfile({'*.avi;*.mp4;*PROC*.mat',...
-%             'Video and Data Files (*.avi, *.mp4, *PROC*.mat)';
-%             '*.avi;*.mp4',...
-%             'Videos (*.avi, *.mp4)';
-%             '*PROC*.mat',...
-%             'Processed Data (*PROC*.mat)'},...
-%             'Select Video or Data file',state.vid.path);
-        [fname,pname,fix] = uigetfile({'*.avi;*.mp4'},'Select Video or Data file',state.vid.path);
+        [fname,pname,fix] = uigetfile({'*.avi;*.mp4;*PROC*.mat',...
+            'Video and Data Files (*.avi, *.mp4, *PROC*.mat)';
+            '*.avi;*.mp4',...
+            'Videos (*.avi, *.mp4)';
+            '*PROC*.mat',...
+            'Processed Data (*PROC*.mat)'},...
+            'Select Video or Data file',state.vid.path);
+%         [fname,pname,fix] = uigetfile({'*.avi;*.mp4'},'Select Video or Data file',state.vid.path);
         if fix == 0;return;end
         loadvid(fname,pname);
     end
+
+    %load video function. this is a mess right now but it works
     function loadvid(fname,pname)        
         if strcmp(vtimer.Running,'on')
             stop(vtimer);
@@ -358,25 +380,34 @@ end
         
         state.vid.path = pname;
         [~,basename,fileext] = fileparts(fname);
-%         if strcmp(fileext,'.mat')
-%             fly = struct;
-%             err = false;
-%             try
-%                 load(fullfile(pname,fname));
-%             catch
-%                 err = true;
-%             end
-%             if err || ~isfield(fly,'uisettings')
-%                 msgbox('This is not a useable data file','Invalid Data File','Error');
-%                 return
-%             end
-%             state = fly.uisettings;
-%             vidfname = [fullfile(state.vid.path,state.vid.basename) state.vid.ext];
-%             vreader = VideoReader(vidfname);
-%             set(ui.loadbutton,'Position',[3 432 60 65]);
-%             setframeix(state.vid.ix);
-%             return
-%         end
+        if strcmp(fileext,'.mat')
+            fly = struct;
+            err = false;
+            try
+                load(fullfile(pname,fname));
+            catch
+                err = true;
+            end
+            if err || ~isfield(fly,'uisettings')
+                msgbox('This is not a useable data file','Invalid Data File','Error');
+                return
+            end
+            state = fly.uisettings;
+            restoreuicontrols;
+            vidfname = [fullfile(state.vid.path,state.vid.basename) state.vid.ext];
+            vreader = VideoReader(vidfname);
+            set(ui.loadbutton,'Position',[3 432 60 65]);
+            pos = vf.Position;
+            pos(4) = 500;
+            pos(3) = 500*state.vid.width/state.vid.height;
+            vf.Name = state.vid.basename;
+            vf.Position = pos;
+            vf.Visible = 'on';
+            vidax.Position = [0 0 1 1];
+            setframeix(state.vid.ix);
+            updatetracking();
+            return
+        end
         
         vr = VideoReader(fullfile(pname,fname));
         state.vid.basename= basename;
@@ -514,7 +545,7 @@ end
 %% acquisition control functions
     function updateacquisition(a,~)
        c = {ui.trackwingcheck,ui.trackheadcheck,ui.trackabdcheck,ui.tracklegcheck};
-       p = {ui.plotwingcheck,ui.plotheadcheck,ui.plotabdcheck,ui.plotlegcheck};
+       p = {ui.plotwingcheck,ui.plotheadcheck,ui.plotabdcheck,ui.plotlegcheck};       
        t = {ui.wingtab,ui.headtab,ui.abdtab,ui.legtab};
        tabchanged = false;
        switch a
@@ -536,7 +567,7 @@ end
                    tf.Visible = 'Off';
                end
            case ui.invertcheck
-               state.invertbw = a.Value;
+               state.vid.invertbw = a.Value;
            case ui.headptbutton
                state.track.head.root=pickpt(1);
            case ui.headrootxadjust
@@ -932,7 +963,10 @@ end
         [mask, poly] = make_arc_mask(lr(1),lr(2),r1,r2,lt,rt,w,h,1,1.75,shift);
         state.track.leg.mask = mask;
         state.track.leg.poly = poly;
-        state.track.leg.borderidx = find(imdilate(bwmorph(mask,'remove'),ones(5)));
+        bordermask = bwmorph(mask,'remove');
+        bordermask([1 h],:)=0;
+        bordermask(:,[1 w])=0;
+        state.track.leg.borderidx = find(imdilate(bordermask,ones(5)));
     end
 %% plotting function
     function plotdata()
@@ -1020,13 +1054,13 @@ end
     function state = initializestatevariables()
         state = struct;
         state.showdata = false;
-        state.invertbw = false;
         
         state.vid.path = pwd;
         state.vid.basename = '';
         state.vid.ext = '';
         state.vid.ix = 1;
         state.vid.loop = false;
+        state.vid.invertbw = false;
         
         state.track.ts = [];
         
@@ -1042,9 +1076,11 @@ end
         state.track.head.ltheta = 220;
         state.track.head.utheta = 320;
         state.track.head.npts = 30;
+        state.track.head.check = false;
         state.track.head.show.pts = true;
         state.track.head.show.thresh = false;
         state.track.head.show.poly = true;
+        state.track.head.show.check = false;
         
         state.track.abd.angle = [];
         state.track.abd.root = [];
@@ -1058,9 +1094,11 @@ end
         state.track.abd.ltheta = 60;
         state.track.abd.utheta = 120;
         state.track.abd.npts = 50;
+        state.track.abd.check = false;
         state.track.abd.show.pts = true;
         state.track.abd.show.thresh = false;
         state.track.abd.show.poly = true;
+        state.track.abd.show.check = false;
         
         state.track.leg.angle = [];
         state.track.leg.tip = [];
@@ -1078,9 +1116,11 @@ end
         state.track.leg.extent = 50;
         state.track.leg.ltheta = 200;
         state.track.leg.utheta = 340;
+        state.track.leg.check = false;
         state.track.leg.show.pts = true;
         state.track.leg.show.thresh = true;
         state.track.leg.show.poly = true;
+        state.track.leg.show.check = false;
         
         state.track.wing.angle = [];
         state.track.wing.root = [];
@@ -1096,9 +1136,11 @@ end
         state.track.wing.utheta = [265 390];
         state.track.wing.npts = [70 70];
         state.track.wing.lock = true;
+        state.track.wing.check = false;
         state.track.wing.show.pts = true;
         state.track.wing.show.thresh = true;
         state.track.wing.show.poly = true;
+        state.track.wing.show.check = false;
     end
     function ui = initializeuicontrols(ui)
         %% vidpanel and load button ui init
@@ -1135,10 +1177,10 @@ end
             'Position',[54 28 131 20],'Callback',@playctrl);
         
         ui.loopcheck = uicontrol(ui.vidpanel,'Style', 'checkbox','String','Loop',...
-            'Position', [3 3 50 20],'Callback',@playctrl);
+            'Value',state.vid.loop,'Position', [3 3 50 20],'Callback',@playctrl);
         
         ui.invertcheck = uicontrol(ui.vidpanel,'Style', 'checkbox','String','Invert',...
-            'Value',state.invertbw,'Position', [51 3 60 20],...
+            'Value',state.vid.invertbw,'Position', [51 3 60 20],...
             'Callback',@updateacquisition);
         
         ui.fpsdisplay = uicontrol(ui.vidpanel,'Style','edit','Enable','off',...,
@@ -1584,6 +1626,176 @@ end
             'Value',span,'Position', [3 6 30 29],...
             'Min',0,'Max',180,'SliderStep',[1/180, 1/180],...
             'Callback',@updatelegtracking);
+    end
+
+    function restoreuicontrols()
+        %play controls
+        ui.progress.Max = state.vid.nframes;
+        ui.progress.SliderStep = [1/(state.vid.nframes-1) 1/(state.vid.nframes-1)];
+        ui.loopcheck.Value = state.vid.loop;
+        ui.invertcheck.Value = state.vid.invertbw;
+        ui.fpsdisplay.String = [num2str(state.vid.fps) 'FPS'];
+        
+        %body axis setups
+        ui.vidpanel.Visible = 'on';
+        ui.setuppanel.Visible = 'on';
+        ui.headrootxadjust.Max = state.vid.width;
+        ui.headrootyadjust.Max = state.vid.height;
+        ui.abdrootxadjust.Max = state.vid.width;
+        ui.abdrootyadjust.Max = state.vid.height;
+        
+        %tracking control/tabs
+        ui.trackwingcheck.Value = state.track.wing.check;
+        ui.trackheadcheck.Value = state.track.head.check;
+        ui.trackabdcheck.Value = state.track.abd.check;
+        ui.tracklegcheck.Value = state.track.leg.check;
+        updateacquisition(ui.trackwingcheck);
+
+        ui.plotwingcheck.Value = state.track.wing.show.check;
+        ui.plotheadcheck.Value = state.track.head.show.check;
+        ui.plotabdcheck.Value = state.track.abd.show.check;
+        ui.plotlegcheck.Value = state.track.leg.show.check;
+        updateacquisition(ui.plotwingcheck);
+        
+        %wings
+        ui.wingnormdropdown.Value = state.track.wing.norm;
+        ui.overlaywingscheck = state.track.wing.show.thresh;
+        ui.lockwingscheck.Value = state.track.wing.lock;
+        if state.track.wing.lock
+            wenset = 'off';
+        else
+            wenset = 'on';
+        end
+        
+        ui.wingap1adjust.Value = state.track.wing.ap(1);
+        ui.wingap1setdisplay.String = [num2str(ui.wingap1adjust.Value) '% rootAP'];
+        ui.wingap2adjust.Enable = wenset;
+        ui.wingap2adjust.Value = state.track.wing.ap(2);
+        ui.wingap2setdisplay.String = [num2str(ui.wingap2adjust.Value) '% rootAP'];
+        
+        ml = state.track.wing.ml(1);
+        if ~state.track.wing.lock
+            ml = 100-ml;
+        end
+        ui.wingml1adjust.Value = ml;
+        ui.wingml1setdisplay.String = [num2str(state.track.wing.ml(1)) '% rootML'];
+        ui.wingml2adjust.Enable = wenset;
+        ui.wingml2adjust.Value = state.track.wing.ml(2);
+        ui.wingml2setdisplay.String = [num2str(state.track.wing.ml(2)) '% rootML'];
+        
+        ui.wingt1adjust.Value = state.track.wing.thresh(1);
+        ui.wingt1setdisplay.String = [num2str(state.track.wing.thresh(1)*100) '% thresh'];
+        ui.wingt2adjust.Enable = wenset;
+        ui.wingt2adjust.Value = state.track.wing.thresh(2);
+        ui.wingt2setdisplay.String = [num2str(state.track.wing.thresh(2)*100) '% thresh'];
+        
+        ui.wingo1adjust.Value = state.track.wing.offset(1);
+        ui.wingo1setdisplay.String = [num2str(state.track.wing.offset(1)) 'px offset'];
+        ui.wingo2adjust.Enable = wenset;
+        ui.wingo2adjust.Value = state.track.wing.offset(2);
+        ui.wingo2setdisplay.String = [num2str(state.track.wing.offset(2)) 'px offset'];
+        
+        ui.winge1adjust.Value = state.track.wing.extent(1);
+        ui.winge1setdisplay.String = [num2str(state.track.wing.extent(1)) 'px extent'];
+        ui.winge2adjust.Enable = wenset;
+        ui.winge2adjust.Value =state.track.wing.extent(2);
+        ui.winge2setdisplay.String = [num2str(state.track.wing.extent(2)) 'px extent'];
+        
+        ui.wingn1adjust.Value =state.track.wing.npts(1);
+        ui.wingn1setdisplay.String = [num2str(state.track.wing.npts(1)) 'px tracked'];
+        ui.wingn2adjust.Enable = wenset;
+        ui.wingn2adjust.Value =state.track.wing.npts(2);
+        ui.wingn2setdisplay.String = [num2str(state.track.wing.npts(2)) 'px tracked'];
+        
+        u = state.track.wing.utheta(1);
+        if u>360
+            u = u-360; 
+        end
+        ui.wingu1adjust.Value = u;
+        ui.wingu1setdisplay.String = [num2str(wrapTo360(360-state.track.wing.utheta(1))) '° upper'];
+        ui.wingl2adjust.Enable = wenset;
+        ui.wingl2adjust.Value = state.track.wing.ltheta(2);
+        ui.wingl2setdisplay.String = [num2str(360-state.track.wing.ltheta(2)) '° lower'];
+        
+        ui.wingl1adjust.Value = state.track.wing.ltheta(1);
+        ui.wingl1setdisplay.String = [num2str(360-state.track.wing.ltheta(1)) '° lower'];
+        ui.wingu2adjust.Enable = wenset;
+        u = state.track.wing.utheta(2);
+        if u>360
+            u = u-360; 
+        end
+        ui.wingu2adjust.Value = u;
+        ui.wingu2setdisplay.String = [num2str(wrapTo360(360-state.track.wing.utheta(2))) '° upper'];
+        
+        %head
+        ui.headmethoddropdown.Value = state.track.head.method;
+        ui.headnormdropdown.Value = state.track.head.norm;
+        ui.overlayheadcheck.Value = state.track.head.show.thresh;
+        
+        ui.headtadjust.Value = state.track.head.thresh;
+        ui.headtsetdisplay = [num2str(state.track.head.thresh*100) '% thresh'];
+        
+        ui.headoadjust.Value = state.track.head.offset;
+        ui.headosetdisplay.String = [num2str(state.track.head.offset) 'px offset'];
+        
+        ui.headeadjust.Value = state.track.head.extent;
+        ui.headesetdisplay.String = [num2str(state.track.head.extent) 'px extent'];
+        
+        ui.headnadjust.Value = state.track.head.npts;
+        ui.headnsetdisplay.String = [num2str(state.track.head.npts) 'px tracked'];
+        
+        ui.headuadjust.Value = state.track.head.utheta;
+        ui.headusetdisplay.String = [num2str(360-state.track.head.utheta) '° upper'];
+        
+        ui.headladjust.Value = state.track.head.ltheta;
+        ui.headlsetdisplay.String = [num2str(360-state.track.head.ltheta) '° lower'];
+        
+        %abdomen
+        ui.abdnormdropdown.Value = state.track.abd.norm;
+        ui.overlayabdcheck.Value = state.track.abd.show.thresh;
+        
+        ui.abdtadjust.Value = state.track.abd.thresh;
+        ui.abdtsetdisplay.String = [num2str(state.track.abd.thresh*100) '% thresh'];
+        
+        ui.abdoadjust.Value = state.track.abd.offset;
+        ui.abdosetdisplay.String = [num2str(state.track.abd.offset) 'px offset'];
+        
+        ui.abdeadjust.Value = state.track.abd.extent;
+        ui.abdesetdisplay.String = [num2str(state.track.abd.extent) 'px extent'];
+        
+        ui.abdnadjust.Value = state.track.abd.npts;
+        ui.abdnsetdisplay.String = [num2str(state.track.abd.npts) 'px tracked'];
+        
+        ui.abduadjust.Value = state.track.abd.utheta;
+        ui.abdusetdisplay.String = [num2str(360-state.track.abd.utheta) '° upper'];
+        
+        ui.abdladjust.Value = state.track.abd.ltheta;
+        ui.abdlsetdisplay.String = [num2str(360-state.track.abd.ltheta) '° lower'];
+        
+        %legs
+        ui.legnormdropdown.Value = state.track.leg.norm;
+        ui.overlaylegcheck.Value = state.track.leg.show.thresh;
+        ui.clearlegbordercheck.Value = state.track.leg.clearborder;
+        
+        ui.legtiadjust.Value = state.track.leg.threshint;
+        ui.legtisetdisplay.String = [num2str(state.track.leg.threshint*100) '% threshInt'];
+        
+        ui.legtsadjust.Value = state.track.leg.threshsize;
+        ui.legtssetdisplay.String = [num2str(state.track.leg.threshsize) 'px threshSz'];
+        
+        ui.legapadjust.Value = state.track.leg.ap/100;
+        ui.legapsetdisplay.String = [num2str(100-state.track.leg.ap) '% AP'];
+        
+        ui.legoadjust.Value = state.track.leg.offset;
+        ui.legosetdisplay.String = [num2str(state.track.leg.offset) 'px offset'];
+        
+        ui.legeadjust.Value = state.track.leg.extent;
+        ui.legesetdisplay.String = [num2str(state.track.leg.extent) 'px extent'];
+        
+        span = state.track.leg.utheta-state.track.leg.ltheta;
+        ui.legspnadjust.Value = span;
+        ui.legspnsetdisplay.String = [num2str(360-span) '° span'];
+        
     end
     %function called when tracking parameters change
     function updatetracking()
