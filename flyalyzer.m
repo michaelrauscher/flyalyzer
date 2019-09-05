@@ -1794,7 +1794,7 @@ end
         
         span = state.track.leg.utheta-state.track.leg.ltheta;
         ui.legspnadjust.Value = span;
-        ui.legspnsetdisplay.String = [num2str(360-span) '° span'];
+        ui.legspnsetdisplay.String = [num2str(span) '° span'];
         
     end
     %function called when tracking parameters change
