@@ -273,6 +273,7 @@ end
         %stop the timer in case the video is playing
         stop(vtimer);
         drawnow;%clear the java event stack to force wait for timer stop
+        delete(vreader);
         try delete(cf);catch;end
         try delete(vf);catch;end
         try delete(tf);catch;end
@@ -359,12 +360,12 @@ end
         fly.uisettings = state;
     end
     function loadbtn(~,~)
-        [fname,pname,fix] = uigetfile({'*.avi;*.mp4;*PROC*.mat',...
-            'Video and Data Files (*.avi, *.mp4, *PROC*.mat)';
+        [fname,pname,fix] = uigetfile({'*.avi;*.mp4;*.mat',...
+            'Video and Data Files (*.avi, *.mp4, *.mat)';
             '*.avi;*.mp4',...
             'Videos (*.avi, *.mp4)';
-            '*PROC*.mat',...
-            'Processed Data (*PROC*.mat)'},...
+            '*.mat',...
+            'MATLAB Data (*.mat)'},...
             'Select Video or Data file',state.vid.path);
 %         [fname,pname,fix] = uigetfile({'*.avi;*.mp4'},'Select Video or Data file',state.vid.path);
         if fix == 0;return;end
@@ -392,9 +393,29 @@ end
                 msgbox('This is not a useable data file','Invalid Data File','Error');
                 return
             end
+            vidfname = [fullfile(fly.uisettings.vid.path,fly.uisettings.vid.basename) fly.uisettings.vid.ext];
+            %try data file directory if video not found (say if we're on a
+            %different computer and the path is different now);
+            if exist(vidfname,'file')~=2
+                vidfname = [fullfile(pname,fly.uisettings.vid.basename) fly.uisettings.vid.ext];
+                if exist(vidfname,'file')~=2
+                    qst = questdlg('The video file listed in this data file was not found. Select manually?','Video File Not Found','Yes','No','Yes');
+                    switch qst
+                        case 'Yes'
+                            [nfname,npname,ffix] = uigetfile({'*.avi;*.mp4'}, ['Select Video matching ' fly.uisettings.vid.basename],state.vid.path);
+                            if ffix == 0;return;end
+                            vidfname = fullfile(npname,nfname);
+                            [fly.uisettings.vid.path,...
+                                fly.uisettings.vid.basename,...
+                                fly.uisettings.vid.ext] = fileparts(vidfname);
+                        case 'No'
+                            return
+                    end
+                end
+            end
+            
             state = fly.uisettings;
             restoreuicontrols;
-            vidfname = [fullfile(state.vid.path,state.vid.basename) state.vid.ext];
             vreader = VideoReader(vidfname);
             set(ui.loadbutton,'Position',[3 432 60 65]);
             pos = vf.Position;
@@ -702,7 +723,7 @@ end
             
             case ui.wingml2adjust
                 state.track.wing.ml(2) = w.Value;
-                ui.wingml2setdisplay.String = [num2str(w.Value*2) '% rootML'];
+                ui.wingml2setdisplay.String = [num2str(w.Value) '% rootML'];
             case ui.wingap1adjust
                 ap = w.Value;
                 state.track.wing.ap(1) = ap;
@@ -1307,10 +1328,10 @@ end
             'Min',0,'Max',100,'SliderStep',[1/100, 1/100],...
             'Callback',@updatewingtracking);
         ui.wingap1setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
-            [num2str(ui.wingap1adjust.Value) '% rootAP'],...
+            [num2str(100-ui.wingap1adjust.Value) '% rootAP'],...
             'Position',[23 173 95 20],'Enable','off');
         ui.wingap2setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
-            [num2str(ui.wingap2adjust.Value) '% rootAP'],...
+            [num2str(100-ui.wingap2adjust.Value) '% rootAP'],...
             'Position',[148 173 95 20],'Enable','off');
         
         ui.wingml1adjust = uicontrol(ui.wingtab,'Style', 'slider',...
@@ -1319,15 +1340,14 @@ end
             'Callback',@updatewingtracking);
         ui.wingml2adjust = uicontrol(ui.wingtab,'Style', 'slider',...
             'Value',state.track.wing.ml(2),'Position', [128 152 20 19],...
-            'Min',0,'Max',100,'SliderStep',[2/100, 2/100],...
+            'Min',0,'Max',100,'SliderStep',[1/100, 1/100],...
             'Callback',@updatewingtracking);
         ui.wingml1setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
             [num2str(ui.wingml1adjust.Value) '% rootML'],...
             'Position',[23 152 95 20],'Enable','off');
         ui.wingml2setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
             [num2str(ui.wingml2adjust.Value) '% rootML'],...
-            'Position',[148 152 95 20],'Enable','off');
-        
+            'Position',[148 152 95 20],'Enable','off');        
         
         ui.wingt1setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
             [num2str(state.track.wing.thresh(1)*100) '% thresh'],...
@@ -1620,7 +1640,7 @@ end
         
         span = state.track.leg.utheta-state.track.leg.ltheta;
         ui.legspnsetdisplay = uicontrol(ui.legtab,'Style','edit','String',...
-            [num2str(360-span) '° span'],...
+            [num2str(span) '° span'],...
             'Position',[33 6 120 30],'Enable','off');
         ui.legspnadjust = uicontrol(ui.legtab,'Style', 'slider',...
             'Value',span,'Position', [3 6 30 29],...
@@ -1668,10 +1688,10 @@ end
         end
         
         ui.wingap1adjust.Value = state.track.wing.ap(1);
-        ui.wingap1setdisplay.String = [num2str(ui.wingap1adjust.Value) '% rootAP'];
+        ui.wingap1setdisplay.String = [num2str(100-state.track.wing.ap(1)) '% rootAP'];
         ui.wingap2adjust.Enable = wenset;
         ui.wingap2adjust.Value = state.track.wing.ap(2);
-        ui.wingap2setdisplay.String = [num2str(ui.wingap2adjust.Value) '% rootAP'];
+        ui.wingap2setdisplay.String = [num2str(100-state.track.wing.ap(2)) '% rootAP'];
         
         ml = state.track.wing.ml(1);
         if ~state.track.wing.lock
@@ -1733,7 +1753,7 @@ end
         ui.overlayheadcheck.Value = state.track.head.show.thresh;
         
         ui.headtadjust.Value = state.track.head.thresh;
-        ui.headtsetdisplay = [num2str(state.track.head.thresh*100) '% thresh'];
+        ui.headtsetdisplay.String = [num2str(state.track.head.thresh*100) '% thresh'];
         
         ui.headoadjust.Value = state.track.head.offset;
         ui.headosetdisplay.String = [num2str(state.track.head.offset) 'px offset'];
