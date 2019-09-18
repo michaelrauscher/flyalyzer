@@ -497,15 +497,24 @@ end
         state.track.leg.tip = nan(4,numframes);
         state.track.ts = linspace(0,numframes/fps,numframes);
        
-        state.track.head.root = [];
-        state.track.head.mask = [];
-        state.track.head.poly = [];
+        keepbody = false;
+        if ~isempty(state.track.head.root) && ~isempty(state.track.abd.root)
+            response = questdlg('Keep Body Axis Definiton Points?','Keep Body Points','Yes','No','No');
+            keepbody = strcmp(response,'Yes');
+        end
+        
+        if ~keepbody
+            state.track.head.root = [];
+            state.track.head.mask = [];
+            state.track.head.poly = [];
+            state.track.abd.root = [];
+            state.track.abd.mask = [];
+            state.track.abd.poly = [];
+        end
+        
         state.track.wing.root = [];
         state.track.wing.mask = [];
         state.track.wing.poly = [];
-        state.track.abd.root = [];
-        state.track.abd.mask = [];
-        state.track.abd.poly = [];
         state.track.leg.root = [];
         state.track.leg.mask = [];
         state.track.leg.poly = [];
