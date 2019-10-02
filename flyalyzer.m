@@ -247,6 +247,15 @@ end
     end    
     function showframe()
         imagesc(vidax,state.vid.dispframe);
+%         hold on
+%         if ~isempty(state.track.leg.poly) && state.track.leg.show.poly
+%             polyx = state.track.leg.poly(1:2:end);
+%             polyy = state.track.leg.poly(2:2:end);
+%             polyx(end+1) = polyx(1);
+%             polyy(end+1) = polyy(1);
+%             plot(vidax,polyx,polyy,'Color',colors.leg./255);
+%             hold off
+%         end
         set(vidax,'TickLength',[0 0]);
     end
 %% program and play control functions
@@ -661,6 +670,7 @@ end
                 value = str2num(value{1});
                 if value>0
                     state.vid.fps = value;
+                    state.track.ts = linspace(0,state.vid.nframes/value,state.vid.nframes);
                     ui.fpsdisplay.String = [num2str(value) 'FPS'];
                 else
                     return
@@ -1913,7 +1923,9 @@ end
             side = 'lower';
         end
         root = double(root);
-        img = rgb2gray(img);
+        if size(img,3)>1
+            img = rgb2gray(img);
+        end
        if norm == 2 % normalize tracking ROI only
             img = imadjust(img,stretchlim(img(mask)));
        elseif norm == 3 %normalize whole image
@@ -1973,7 +1985,9 @@ end
             end
         end
         root = double(root);
-        img = rgb2gray(img);
+        if size(img,3)>1
+            img = rgb2gray(img);
+        end
        if norm == 2 % normalize tracking ROI only
             img = imadjust(img,stretchlim(img(mask)));
        elseif norm == 3 %normalize whole image
@@ -2032,7 +2046,9 @@ end
     %leg tracking function
     function [angle,tip,extrema,bw] = tracklegs(img,mask,borderlin,roots,threshint,threshsize,norm)
         roots = double(roots);
-        img = rgb2gray(img);
+        if size(img,3)>1
+            img = rgb2gray(img);
+        end
        if norm == 2 % normalize tracking ROI only
             img = imadjust(img,stretchlim(img(mask)));
        elseif norm == 3 %normalize whole image
