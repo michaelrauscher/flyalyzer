@@ -671,6 +671,7 @@ end
                 if value>0
                     state.vid.fps = value;
                     state.track.ts = linspace(0,state.vid.nframes/value,state.vid.nframes);
+                    plotdata;
                     ui.fpsdisplay.String = [num2str(value) 'FPS'];
                 else
                     return
@@ -1084,7 +1085,12 @@ end
         datax.ButtonDownFcn = @playctrl;
         ylim(datax,[0 360])
         yticks(datax,0:30:360);
-        xlim(datax,[0 state.vid.nframes/state.vid.fps]);
+        if strcmp(ui.zoombtn.String,'Z-')
+            f = state.vid.ix/state.vid.fps;
+            xlim(datax,[f-.4 f+.1]);
+        else
+            xlim(datax,[0 state.vid.nframes/state.vid.fps]);
+        end
         hold(datax,'off')
         box(datax,'off');
         xlabel(datax,'Time (s)');
@@ -1665,6 +1671,11 @@ end
             'Value',span,'Position', [3 6 30 29],...
             'Min',0,'Max',180,'SliderStep',[1/180, 1/180],...
             'Callback',@updatelegtracking);
+        
+        %% zoom button
+        ui.zoombtn = uicontrol(tf,'Style','pushbutton','String',...
+            'Z+','unit','pixel','Position',[465 225 30 50],...
+            'Callback',@zoomctrl);
     end
 
     function restoreuicontrols()
@@ -1834,8 +1845,20 @@ end
         span = state.track.leg.utheta-state.track.leg.ltheta;
         ui.legspnadjust.Value = span;
         ui.legspnsetdisplay.String = [num2str(span) '° span'];
-        
     end
+
+    function zoomctrl(b,~)
+        switch b.String
+            case 'Z+'
+                b.String = 'Z-';
+            case 'Z-'
+                b.String = 'Z+';
+        end
+        if strcmp(vtimer.Running,'off')
+            plotdata();
+        end
+    end
+
     %function called when tracking parameters change
     function updatetracking()
         if ~isempty(state.track.head.root)
