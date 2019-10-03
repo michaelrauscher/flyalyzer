@@ -61,13 +61,21 @@ end
         end
     end
     function setframeix(ix)
-        %if the requested frame is the next frame we can just read the next
-        %frame, so we'll only set the video time if we need to
-        if ix~=(state.vid.ix+1)
-            vreader.CurrentTime = state.vid.timeix(ix);
+        if verLessThan('MATLAB','9.7')
+            %if the requested frame is the next frame we can just read the next
+            %frame, so we'll only set the video time if we need to
+            if ix~=(state.vid.ix+1)
+                vreader.CurrentTime = state.vid.timeix(ix);
+            end
+            state.vid.curframe = readFrame(vreader);
+        else
+            state.vid.curframe = read(vreader,ix);
         end
         state.vid.ix = ix;
-        state.vid.curframe = readFrame(vreader);
+%         if state.vid.timeix(min([ix+1 state.vid.nframes]))~=vreader.CurrentTime
+%             t1 = state.vid.timeix(min([ix+1 state.vid.nframes]))
+%             t2= vreader.CurrentTime
+%         end
         ui.progress.Value = ix;
         ui.dispframe.String = ['Frame ' num2str(ix) ' of ' num2str(state.vid.nframes)];
         processframe();
@@ -442,16 +450,23 @@ end
         vr = VideoReader(fullfile(pname,fname));
         state.vid.basename= basename;
         state.vid.ext = fileext;
-        f = 0;
-        timeix = [];
-        numframes = 0;
-        %             fprintf('Building Frame Index...');
-        while hasFrame(vr)
-            f = f+1;
-            timeix(f) = vr.CurrentTime;
-            numframes = numframes+1;
-            readFrame(vr);
+        
+        if verLessThan('MATLAB','9.7')
+            f = 0;
+            timeix = [];
+            numframes = 0;
+            %             fprintf('Building Frame Index...');
+            while hasFrame(vr)
+                f = f+1;
+                timeix(f) = vr.CurrentTime;
+                numframes = numframes+1;
+                readFrame(vr);
+            end
+        else
+            numframes = vr.NumFrames;
+            timeix = (0:numframes-1)./vr.FrameRate;
         end
+        
         ui.progress.Value = 1;
         ui.progress.Max = numframes;
         ui.progress.SliderStep = [1/(numframes-1) 1/(numframes-1)];
