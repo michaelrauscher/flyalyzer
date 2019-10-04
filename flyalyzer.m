@@ -584,7 +584,11 @@ end
             case {datax,lines}
                 if ~strcmp(e.EventName,'Hit');return;end
                 ix=e.IntersectionPoint(1);
-                ix = floor(ix*state.vid.fps);
+                if strcmp(ui.ixtbtn.String,'t')
+                    ix = floor(ix);
+                else
+                    ix = floor(ix*state.vid.fps);                  
+                end                
                 if ix<1;ix = 1;end
                 if ix>state.vid.nframes;ix = state.vid.nframes;end
                 setframeix(ix);
@@ -1091,25 +1095,43 @@ end
         end
         
         if strcmp(tf.Visible,'off');tf.Visible = 'on';end
-        t = state.track.ts;
+        useix = strcmp(ui.ixtbtn.String,'t');
+        if useix
+            t = 1:length(state.track.ts);
+            tunit = 'frames';
+        else
+            t = state.track.ts;    
+            tunit = 's';
+        end
         lines = plot(datax,t,data);hold(datax,'on')
         [lines.Color] = deal(pcolors{:});
         [lines.ButtonDownFcn] = deal(@playctrl);
-        x = state.vid.ix/state.vid.fps;
+        if useix
+            x = state.vid.ix;
+        else
+            x = state.vid.ix/state.vid.fps;
+        end
         plot(datax,[x x],[0 360],'Color','Black');hold(datax,'off')
         datax.HitTest = 'on';
         datax.ButtonDownFcn = @playctrl;
         ylim(datax,[0 360])
         yticks(datax,0:30:360);
         if strcmp(ui.zoombtn.String,'Z-')
-            f = state.vid.ix/state.vid.fps;
-            xlim(datax,[f-.4 f+.1]);
+            if useix
+                f = state.vid.ix;
+                xlim(datax,[f-state.vid.fps*.4 f+state.vid.fps*.1]);
+            else
+                f = state.vid.ix/state.vid.fps;
+                xlim(datax,[f-.4 f+.1]);
+            end
+        elseif useix
+            xlim(datax,[1,length(t)]);
         else
             xlim(datax,[0 state.vid.nframes/state.vid.fps]);
         end
         hold(datax,'off')
         box(datax,'off');
-        xlabel(datax,'Time (s)');
+        xlabel(datax,['Time (' tunit ')']);
         ylabel(datax,'Angle (°)');
     end
 %% utility functions
@@ -1690,8 +1712,12 @@ end
         
         %% zoom button
         ui.zoombtn = uicontrol(tf,'Style','pushbutton','String',...
-            'Z+','unit','pixel','Position',[465 225 30 50],...
+            'Z+','unit','pixel','Position',[465 250 30 50],...
             'Callback',@zoomctrl);
+        %% index or time button
+        ui.ixtbtn = uicontrol(tf,'Style','pushbutton','String',...
+            'ix','unit','pixel','Position',[465 200 30 50],...
+            'Callback',@ixtctrl);
     end
 
     function restoreuicontrols()
@@ -1863,12 +1889,25 @@ end
         ui.legspnsetdisplay.String = [num2str(span) '° span'];
     end
 
+    %% plotting control callbacks
     function zoomctrl(b,~)
         switch b.String
             case 'Z+'
                 b.String = 'Z-';
             case 'Z-'
                 b.String = 'Z+';
+        end
+        if strcmp(vtimer.Running,'off')
+            plotdata();
+        end
+    end
+
+    function ixtctrl(b,~)
+        switch b.String
+            case 'ix'
+                b.String = 't';
+            case 't'
+                b.String = 'ix';
         end
         if strcmp(vtimer.Running,'off')
             plotdata();
