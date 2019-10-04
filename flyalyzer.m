@@ -463,8 +463,9 @@ end
                 readFrame(vr);
             end
         else
+            
             numframes = vr.NumFrames;
-            timeix = (0:numframes-1)./vr.FrameRate;
+            timeix = ((0:numframes-1)./vr.FrameRate)+vr.CurrentTime;
         end
         
         ui.progress.Value = 1;
