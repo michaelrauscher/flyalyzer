@@ -31,6 +31,7 @@ function flyalyzer(vidname)
     'MenuBar','none','Resize','on','Position',[300 175 500 666],...
     'CloseRequestFcn',@closecleanup);
     vidax = axes(vf);
+    im = [];
     
     tf = figure('Name','Kinematic Trace','NumberTitle','off','Visible','off',...
     'MenuBar','none','Resize','off','Position',[966 175 500 500],...
@@ -254,7 +255,8 @@ end
         state.vid.dispframe = out;
     end    
     function showframe()
-        imagesc(vidax,state.vid.dispframe);
+%         imagesc(vidax,state.vid.dispframe);
+        im.CData = state.vid.dispframe;
 %         hold on
 %         if ~isempty(state.track.leg.poly) && state.track.leg.show.poly
 %             polyx = state.track.leg.poly(1:2:end);
@@ -443,6 +445,7 @@ end
             vf.Visible = 'on';
             vidax.Position = [0 0 1 1];
             setframeix(state.vid.ix);
+            im = imagesc(vidax,state.vid.dispframe);
             updatetracking();
             return
         end
@@ -490,7 +493,14 @@ end
         vf.Name = state.vid.basename;
         vf.Position = pos;
         vf.Visible = 'on';
+        im = imagesc(vidax,state.vid.dispframe);
         vidax.Position = [0 0 1 1];
+        vidax.XTick = [];
+        vidax.YTick = [];
+        if ~verLessThan('Matlab','9.5')
+            tb = axtoolbar(vidax,'default');
+        end
+        tb.Visible = 'off';
         ui.trackwingcheck.Value = false;
         ui.trackheadcheck.Value = false;
         ui.trackabdcheck.Value = false;
@@ -1712,11 +1722,11 @@ end
         
         %% zoom button
         ui.zoombtn = uicontrol(tf,'Style','pushbutton','String',...
-            'Z+','unit','pixel','Position',[465 250 30 50],...
+            'Z+','unit','pixel','Position',[462 250 31 50],...
             'Callback',@zoomctrl);
         %% index or time button
         ui.ixtbtn = uicontrol(tf,'Style','pushbutton','String',...
-            'ix','unit','pixel','Position',[465 200 30 50],...
+            'ix','unit','pixel','Position',[462 200 31 50],...
             'Callback',@ixtctrl);
     end
 
@@ -2009,7 +2019,11 @@ end
        elseif norm == 3 %normalize whole image
            img = imadjust(img);
        end
-        bw  = imbinarize(img,thresh)&mask;
+        if thresh>0
+            bw  = imbinarize(img,thresh)&mask;
+        else
+            bw = imbinarize(img,graythresh(img(mask)))&mask;
+        end
         p = regionprops(bw,'Area','PixelList');     
         
         if  isempty(p) | bw == mask
