@@ -621,9 +621,11 @@ end
            case c
                tabchanged = true;
                ix = find([c{:}]==a);
-               %turn plotting on and off with tracking by default
-               p{ix}.Value = a.Value;
-               updateacquisition(p{ix},[]);
+               %turn plotting on with tracking by default
+               if a.Value == true
+                p{ix}.Value = a.Value;
+                updateacquisition(p{ix},[]);
+               end
            case p
                b = 0;
                for i = 1:length(p)
@@ -658,22 +660,99 @@ end
            case ui.abdptbutton
                state.track.abd.root=pickpt(1); 
            case ui.clearheadbutton
+              opt = questdlg('Clear Head Data?','Clear Head Data','This Frame','Range','All','This Frame');
+              if isempty(opt);return;end
+              newdata = state.track.head.angle;
+              switch opt
+                  case 'This Frame'
+                      newdata(state.vid.ix) = nan;
+                  case 'Range'
+                      ropt = questdlg('Clear Head Data Range?','Clear Data Range','Start to This Frame','This Frame to End','Start to This Frame');
+                      if isempty(ropt);return;end
+                      switch ropt
+                          case 'Start to This Frame'
+                              newdata(1:state.vid.ix) = nan;
+                          case 'This Frame to End'
+                              newdata(state.vid.ix:end) = nan;
+                      end
+                  case 'All'
+                      newdata = nan(size(newdata));
+              end
               ui.trackheadcheck.Value = false;
               updateacquisition(ui.trackheadcheck,[]);
-              state.track.head.angle = nan(1,state.vid.nframes);
+              state.track.head.angle = newdata;
            case ui.clearabdbutton
+              opt = questdlg('Clear Abdomen Data?','Clear Abdomen Data','This Frame','Range','All','This Frame');
+              if isempty(opt);return;end
+              newdata = state.track.abd.angle;
+              switch opt
+                  case 'This Frame'
+                      newdata(state.vid.ix) = nan;
+                  case 'Range'
+                      ropt = questdlg('Clear Abdomen Data Range?','Clear Data Range','Start to This Frame','This Frame to End','Start to This Frame');
+                      if isempty(ropt);return;end
+                      switch ropt
+                          case 'Start to This Frame'
+                              newdata(1:state.vid.ix) = nan;
+                          case 'This Frame to End'
+                              newdata(state.vid.ix:end) = nan;
+                      end
+                  case 'All'
+                      newdata = nan(size(newdata));
+              end
               ui.trackabdcheck.Value = false;
               updateacquisition(ui.trackabdcheck,[]);
-              state.track.abd.angle = nan(1,state.vid.nframes);
+              state.track.abd.angle = newdata;
            case ui.clearwingsbutton
+              opt = questdlg('Clear Wing Data?','Clear Wing Data','This Frame','Range','All','This Frame');
+              if isempty(opt);return;end
+              newdata = state.track.wing.angle;
+              switch opt
+                  case 'This Frame'
+                      newdata(:,state.vid.ix) = nan;
+                  case 'Range'
+                      ropt = questdlg('Clear Wing Data Range?','Clear Data Range','Start to This Frame','This Frame to End','Start to This Frame');
+                      if isempty(ropt);return;end
+                      switch ropt
+                          case 'Start to This Frame'
+                              newdata(:,1:state.vid.ix) = nan;
+                          case 'This Frame to End'
+                              newdata(:,state.vid.ix:end) = nan;
+                      end
+                  case 'All'
+                      newdata = nan(size(newdata));
+              end 
               ui.trackwingcheck.Value = false;
               updateacquisition(ui.trackwingcheck,[]);
-              state.track.wing.angle = nan(2,state.vid.nframes);
+              state.track.wing.angle = newdata;
            case ui.clearlegsbutton
+              opt = questdlg('Clear Leg Data?','Clear Leg Data','This Frame','Range','All','This Frame');
+              if isempty(opt);return;end
+              newangle = state.track.leg.angle;
+              newtips = state.track.leg.tip;
+              switch opt
+                  case 'This Frame'
+                      newangle(:,state.vid.ix) = nan;
+                      newtips(:,state.vid.ix) = nan;
+                  case 'Range'
+                      ropt = questdlg('Clear Leg Data Range?','Clear Data Range','Start to This Frame','This Frame to End','Start to This Frame');
+                      if isempty(ropt);return;end
+                      switch ropt
+                          case 'Start to This Frame'
+                              newangle(:,1:state.vid.ix) = nan;
+                              newtips(:,1:state.vid.ix) = nan;
+                          case 'This Frame to End'
+                              newangle(:,state.vid.ix:end) = nan;
+                              newtips(:,state.vid.ix:end) = nan;
+                      end
+                  case 'All'
+                      newangle = nan(size(newangle));
+                      newtips = nan(size(newtips));
+              end 
               ui.tracklegcheck.Value = false;
               updateacquisition(ui.tracklegcheck,[]);
-              state.track.leg.angle = nan(2,state.vid.nframes);
-              state.track.leg.tip = nan(4,state.vid.nframes);
+              state.track.leg.angle = newangle;
+              state.track.leg.tip = newtips;
            otherwise
                disp('!');
        end
@@ -2321,6 +2400,15 @@ end
         colorschemes(i).leg = [255 255 0];
         colorschemes(i).axis = [0 0 255];
         colorschemes(i).name = 'RGB'; 
+        
+        i = i+1;
+        colorschemes(i).head = 255-[55 126 184];
+        colorschemes(i).abd = 255-[152 78 163];
+        colorschemes(i).wingL = 255-[77 175 74];
+        colorschemes(i).wingR = 255-[228 26 28];
+        colorschemes(i).leg = 255-[255 217 47];
+        colorschemes(i).axis = 255-[255 127 0];
+        colorschemes(i).name = 'Default Inverted';
         
         col = colorschemes(ix);
     end
