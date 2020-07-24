@@ -2179,7 +2179,7 @@ end
             y = p(ix).PixelList(:,2);           
             
             [theta, rho] = cart2pol(x-root(1),y-root(2));
-            theta = rad2deg(theta);
+            theta = wrapTo360(rad2deg(theta));
             [~,rix] = sort(rho,'descend');
             if length(rho)<npts
                 npts = length(rho);
