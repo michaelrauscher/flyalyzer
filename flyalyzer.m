@@ -1,13 +1,33 @@
-% Flyalyzer, Michael Rauscher 2019
+% Flyalyzer v1.1, Michael Rauscher 2022
 
 function flyalyzer(vidname)
     %only allow one running instance
     fgs=findobj('Type','figure');
     if ~isempty(fgs)
-        if any(contains({fgs.Name},'Flyalyzer'));return;end
+        if any(contains({fgs.Name},'Flyalyzer'))
+            %if we're trying to load a new file though pass the file to the
+            %running instance and trigger a load with the closereq function
+            if ~isempty(vidname)
+                flix=find(contains({fgs.Name},'Flyalyzer'));
+                fgs(flix).UserData = vidname;
+                close(fgs(flix));
+            end
+            return;
+        end
     end
 
 %% state variable declaration
+    
+    % change to true to replace "export to workspace" with "export to csv"
+    STANDALONE = false;
+    if STANDALONE
+        try
+            opengl('hardware');
+        catch
+            opengl('software');
+        end
+    end
+
     import java.awt.Robot;
     mouse = Robot; %for moving mouse over the image frame to pick points
     closing = false;
@@ -32,6 +52,26 @@ function flyalyzer(vidname)
     'CloseRequestFcn',@closecleanup);
     vidax = axes(vf);
     im = [];
+    axlin = [];
+    axrlin = [];
+    
+    wingLpoly = [];wingLlin = [];wingLpts =[];wingLtrk = [];
+    wingLrpt = [];wingLcpt = [];wingLlwr = [];wingLupr=[]; wingLtpt = [];
+    wingLmpt = [];
+    wingRpoly = [];wingRlin = [];wingRpts = [];wingRtrk = [];
+    wingRrpt = [];wingRcpt = [];wingRlwr = [];wingRupr=[];wingRtpt = [];
+    wingRmpt = [];
+    
+    headpoly = [];headlin = [];headorthlin = [];headpts = [];headtrk = [];
+    headrpt = []; headcpt = [];headlwr = [];headupr=[];headtpt = [];
+    headmpt = [];
+    
+    abdpoly = [];abdlin = [];abdpts = [];abdtrk = [];
+    abdrpt = []; abdcpt = [];abdlwr = [];abdupr=[];abdtpt = [];
+    abdmpt = [];
+    
+    legpoly = [];leglin = [];legLbox = []; legRbox = []; legpts = [];
+    legcpt = []; leglwr = []; legupr = [];
     
     tf = figure('Name','Kinematic Trace','NumberTitle','off','Visible','off',...
     'MenuBar','none','Resize','off','Position',[966 175 500 500],...
@@ -56,6 +96,7 @@ end
             else
                 stop(vtimer);
                 ui.playpause.String = '>';
+                processframe;
             end
         else
             setframeix(state.vid.ix+1);
@@ -73,17 +114,18 @@ end
             state.vid.curframe = read(vreader,ix);
         end
         state.vid.ix = ix;
-%         if state.vid.timeix(min([ix+1 state.vid.nframes]))~=vreader.CurrentTime
-%             t1 = state.vid.timeix(min([ix+1 state.vid.nframes]))
-%             t2= vreader.CurrentTime
-%         end
         ui.progress.Value = ix;
         ui.dispframe.String = ['Frame ' num2str(ix) ' of ' num2str(state.vid.nframes)];
         processframe();
         showframe();
         plotdata();
     end
-    function processframe()
+    function processframe(h,~)
+        if nargin==0
+            h = [];
+        elseif ~strcmp(h.Type,'images.roi.point')
+            h = [];
+        end
         img = state.vid.curframe;
         if state.vid.invertbw;img = imcomplement(img);end        
         out = img;
@@ -93,114 +135,175 @@ end
             abd = state.track.abd;
             leg = state.track.leg;
             
-            %draw body axis
-            angle = state.track.orientation;
-            r = sqrt(state.vid.width^2 + state.vid.height^2);
-            pt1(1) = head.root(1)-r*sind(angle);
-            pt1(2) = head.root(2)+r*cosd(angle);
-            pt2(1) = abd.root(1)+r*sind(angle);
-            pt2(2) = abd.root(2)-r*cosd(angle);
-            insline = [pt1 pt2];
-            out = insertShape(out,'Line',insline,'color',colors.axis);
-            
             % wing tracking
-            if ui.trackwingcheck.Value && ~isempty(state.track.wing.poly)
-                [angle1,pts1,bw1] = trackborder(img,wing.mask(:,:,1),wing.root(1,:),wing.thresh(1),wing.norm,wing.npts(1),'lower');
+            if ((ui.trackwingcheck.Value && ~isempty(state.track.wing.poly))&&isempty(h)) | any([isequal(h,wingLmpt) isequal(h,wingRmpt)])
+                if isempty(h)
+                    [angle1,pts1,bw1] = trackborder(img,wing.mask(:,:,1),wing.root(1,:),wing.thresh(1),wing.norm,wing.npts(1),'lower');
+
+                elseif h==wingLmpt
+                    angle1 = atan2d(h.Position(2)-wing.root(1,2),h.Position(1)-wing.root(1,1));
+                    pts1 = [nan nan];
+                else
+                    angle1 = 360-state.track.wing.angle(1,state.vid.ix);
+                    pts1 = [wingLpts.XData', wingLpts.YData'];
+                end
                 angle1 = wrapTo360(angle1);
                 r = wing.extent(1)+wing.offset(1);
                 pt2(1) = wing.root(1,1)+r*cosd(angle1);
                 pt2(2) = wing.root(1,2)+r*sind(angle1);
+                wingLlin.XData(2) = pt2(1);
+                wingLlin.YData(2) = pt2(2);
                 wlineL = [wing.root(1,:) pt2];
-                [angle2,pts2,bw2] = trackborder(img,wing.mask(:,:,2),wing.root(2,:),wing.thresh(2),wing.norm,wing.npts(2),'upper');
+
+                if strcmp(vtimer.Running,'off') && ~isnan(angle1)
+                    wingLmpt.Position  = pt2;
+                    wingLmpt.Visible = 'on';
+                else
+                    wingLmpt.Visible = 'off';
+                end
+
+                if isempty(h)
+                    [angle2,pts2,bw2] = trackborder(img,wing.mask(:,:,2),wing.root(2,:),wing.thresh(2),wing.norm,wing.npts(2),'upper');                    
+                elseif h==wingRmpt
+                    angle2 = atan2d(h.Position(2)-wing.root(2,2),h.Position(1)-wing.root(2,1));
+                    pts2 = [nan nan];
+                else
+                    angle2 = 360-state.track.wing.angle(2,state.vid.ix);             
+                    pts2 = [wingRpts.XData', wingRpts.YData'];
+                end
                 angle2 = wrapTo360(angle2);
                 r = wing.extent(2)+wing.offset(2);
                 pt2(1) = wing.root(2,1)+r*cosd(angle2);
                 pt2(2) = wing.root(2,2)+r*sind(angle2);
-                wlineR = [wing.root(2,:) pt2];           
+                wingRlin.XData(2) = pt2(1);
+                wingRlin.YData(2) = pt2(2);
+                wlineR = [wing.root(2,:) pt2];
+
+                if strcmp(vtimer.Running,'off') && ~isnan(angle2)
+                    wingRmpt.Position  = pt2;
+                    wingRmpt.Visible = 'on';
+                else
+                    wingRmpt.Visible = 'off';
+                end
                 
                 %record values (switch from y-inverted computer graphics
                 %coordinates to conventional coordinates)
                 state.track.wing.angle(1:2,state.vid.ix) = [360-angle1;360-angle2];
                 
                 % draw thresh
-                if wing.show.thresh
+                if wing.show.thresh & isempty(h)
                     out = overlaythresh(out,colors.wingL./2,bw1);
                     out = overlaythresh(out,colors.wingR./2,bw2);
                 end
-                
+
+                wingLpts.XData = nan;wingLpts.YData = nan;
+                wingRpts.XData = nan;wingRpts.YData = nan;
                 if ~any(isnan([wlineL wlineR]))
-                    out = insertShape(out,'Line',wlineL,'color',colors.wingL);
-                    out = insertShape(out,'Line',wlineR,'color',colors.wingR);
 
                     if wing.show.pts
-                        out = insertMarker(out,pts1,'+','color',colors.wingL);
-                        out = insertMarker(out,pts2,'+','color',colors.wingR);
+                        wingLpts.XData = pts1(:,1);
+                        wingLpts.YData = pts1(:,2);
+                        wingRpts.XData = pts2(:,1);
+                        wingRpts.YData = pts2(:,2);
                     end
-                end
-                if wing.show.poly
-                    out = insertShape(out,'Polygon',wing.poly(1,:),'color',colors.wingL);
-                    out = insertShape(out,'Polygon',wing.poly(2,:),'color',colors.wingR);
                 end
             end
             
-            if ui.trackheadcheck.Value && ~isempty(state.track.head.poly)
-                
-                [angle, pts,bw] = tracktip(img,head.mask,head.root,head.thresh,head.norm,head.npts,head.method);
+            if ((ui.trackheadcheck.Value && ~isempty(state.track.head.poly)) && isempty(h)) | isequal(h,headmpt)
+                if isempty(h)
+                    [angle, pts,bw] = tracktip(img,head.mask,head.root,head.thresh,head.norm,head.npts,head.method);
+                else
+                    angle = atan2d(h.Position(2)-head.root(2),h.Position(1)-head.root(1));
+                    pts = [nan nan];
+                    bw = [];
+                end
                 angle = wrapTo360(angle);
                 r = head.extent+head.offset;
                 pt2(1) = head.root(1)+r*cosd(angle);
                 pt2(2) = head.root(2)+r*sind(angle);
                 insline = [head.root pt2];
+                headlin.XData(2) = pt2(1);
+                headlin.YData(2) = pt2(2);
+                if strcmp(vtimer.Running,'off') && ~isnan(angle)
+                    headmpt.Position  = pt2;
+                    headmpt.Visible = 'on';
+                else
+                    headmpt.Visible = 'off';
+                end
                 r = .66*r;
+%                 r = head.offset;
                 pt3(1) = head.root(1)+r*cosd(90+angle);
                 pt3(2) = head.root(2)+r*sind(90+angle);
                 pt4(1) = head.root(1)+r*cosd(angle-90);
                 pt4(2) = head.root(2)+r*sind(angle-90);
                 insline = [insline;head.root pt3;head.root pt4];
+                headorthlin.XData= [pt3(1) pt4(1)];
+                headorthlin.YData = [pt3(2) pt4(2)];
                 
                 %record value (switch from y-inverted computer graphics
                 %coordinates to conventional coordinates)
                     state.track.head.angle(state.vid.ix)=360-angle;
                 
-                if head.show.thresh
+                if head.show.thresh && ~isempty(bw)
                     out = overlaythresh(out,colors.head./2,bw);
                 end
                 
+                headpts.XData = nan;
+                headpts.YData = nan;
                 if ~any(isnan(insline))
-                    out = insertShape(out,'Line',insline,'color',colors.head);
+%                     out = insertShape(out,'Line',insline,'color',colors.head);
                     if head.show.pts
-                        out = insertMarker(out,pts,'+','color',colors.head);
+%                         out = insertMarker(out,pts,'+','color',colors.head);
+                        headpts.XData = pts(:,1);
+                        headpts.YData = pts(:,2);
                     end
                 end
-                if head.show.poly
-                    out = insertShape(out,'Polygon',head.poly,'color',colors.head);
-                end
+%                 if head.show.poly
+%                     out = insertShape(out,'Polygon',head.poly,'color',colors.head);
+%                 end
             end
-            if ui.trackabdcheck.Value && ~isempty(state.track.abd.poly)                
-                [angle,pts,bw] = tracktip(img,abd.mask,abd.root,abd.thresh,abd.norm,abd.npts,abd.method,1);
+            if ((ui.trackabdcheck.Value && ~isempty(state.track.abd.poly)) && isempty(h)) | isequal(h,abdmpt)         
+                if isempty(h)
+                    [angle,pts,bw] = tracktip(img,abd.mask,abd.root,abd.thresh,abd.norm,abd.npts,abd.method,1);
+                else
+                    angle = atan2d(h.Position(2)-abd.root(2),h.Position(1)-abd.root(1));
+                    pts = [nan nan];
+                    bw = [];
+                end
                 angle = wrapTo360(angle);
                 r = abd.extent+abd.offset;
                 pt2(1) = abd.root(1)+r*cosd(angle);
                 pt2(2) = abd.root(2)+r*sind(angle);
                 insline = [abd.root pt2];
-                
+                abdlin.XData(2) = pt2(1);
+                abdlin.YData(2) = pt2(2);
+                if strcmp(vtimer.Running,'off') && ~isnan(angle)
+                    abdmpt.Position  = pt2;
+                    abdmpt.Visible = 'on';
+                else
+                    abdmpt.Visible = 'off';
+                end
                 %record value (switch from y-inverted computer graphics
                 %coordinates to conventional coordinates)
                 state.track.abd.angle(state.vid.ix) = 360-angle;
                 
-                if abd.show.thresh
+                if abd.show.thresh && ~isempty(bw)
                     out = overlaythresh(out,colors.abd./2,bw);
                 end
                 
+                abdpts.XData = nan;
+                abdpts.YData = nan;
                 if ~any(isnan(insline))
-                    out = insertShape(out,'Line',insline,'color',colors.abd);
+%                     out = insertShape(out,'Line',insline,'color',colors.abd);
                     if abd.show.pts
-                        out = insertMarker(out,pts,'+','color',colors.abd);
+%                         out = insertMarker(out,pts,'+','color',colors.abd);
+                        abdpts.XData = pts(:,1);
+                        abdpts.YData = pts(:,2);
                     end
                 end
-                if abd.show.poly
-                    out = insertShape(out,'Polygon',state.track.abd.poly,'color',colors.abd);
-                end
+%                 if abd.show.poly
+%                     out = insertShape(out,'Polygon',state.track.abd.poly,'color',colors.abd);
+%                 end
             end
         end
         
@@ -210,17 +313,31 @@ end
             if leg.show.thresh
                 out = overlaythresh(out,colors.leg./2,bw);
             end
+            legpts.XData = [];
+            legpts.YData = [];
+            legLbox.XData = nan;
+            legLbox.YData = nan;
+            legRbox.XData = nan;
+            legRbox.YData = nan;
             if ~all(isnan(extrema))
                 if ~any(isnan(extrema(1,:)))
-                    out = insertShape(out,'Polygon',extrema(1,:),'color',255-colors.leg);
+                    legLbox.XData = [extrema(1,1:2:end) extrema(1,1)];
+                    legLbox.YData = [extrema(1,2:2:end) extrema(1,2)];
+%                     out = insertShape(out,'Polygon',extrema(1,:),'color',255-colors.leg);
                     if leg.show.pts
-                        out = insertMarker(out,tip(1,:),'+','color',colors.leg);
+                        legpts.XData = [legpts.XData tip(1,1)];
+                        legpts.YData = [legpts.YData tip(1,2)];
+%                         out = insertMarker(out,tip(1,:),'+','color',colors.leg);
                     end
                 end
                 if ~any(isnan(extrema(2,:)))
-                    out = insertShape(out,'Polygon',extrema(2,:),'color',255-colors.leg);
+                    legRbox.XData = [extrema(2,1:2:end) extrema(2,1)];
+                    legRbox.YData = [extrema(2,2:2:end) extrema(2,2)];
+%                     out = insertShape(out,'Polygon',extrema(2,:),'color',255-colors.leg);
                     if leg.show.pts
-                        out = insertMarker(out,tip(2,:),'+','color',colors.leg);
+                        legpts.XData = [legpts.XData tip(2,1)];
+                        legpts.YData = [legpts.YData tip(2,2)];
+%                         out = insertMarker(out,tip(2,:),'+','color',colors.leg);
                     end
                 end         
             end
@@ -232,25 +349,25 @@ end
             state.track.leg.tip(1:2,state.vid.ix)=tip(1,:);
             state.track.leg.tip(3:4,state.vid.ix)=tip(2,:);
             
-            if leg.show.poly
-                out = insertShape(out,'Polygon',state.track.leg.poly,'color',colors.leg);
-            end
+%             if leg.show.poly
+%                 out = insertShape(out,'Polygon',state.track.leg.poly,'color',colors.leg);
+%             end
         end
         
-        if ~isempty(state.track.head.root)
-            out = insertMarker(out,state.track.head.root,'s','color',colors.head);            
-        end
-        if ~isempty(state.track.abd.root)
-            out = insertMarker(out,state.track.abd.root,'s','color',colors.abd);
-        end
-        if ~isempty(state.track.wing.root) && ui.trackwingcheck.Value
-            out = insertMarker(out,state.track.wing.root(1,:),'s','color',colors.wingL);
-            out = insertMarker(out,state.track.wing.root(2,:),'s','color',colors.wingR);
-        end
-        if ~isempty(state.track.leg.root) && ui.tracklegcheck.Value
-            legline = [state.track.leg.root(1,:) state.track.leg.root(2,:)];
-            out = insertShape(out,'Line',legline,'color',colors.leg);
-        end
+%         if ~isempty(state.track.head.root)
+%             out = insertMarker(out,state.track.head.root,'s','color',colors.head);            
+%         end
+%         if ~isempty(state.track.abd.root)
+%             out = insertMarker(out,state.track.abd.root,'s','color',colors.abd);
+%         end
+%         if ~isempty(state.track.wing.root) && ui.trackwingcheck.Value
+%             out = insertMarker(out,state.track.wing.root(1,:),'s','color',colors.wingL);
+%             out = insertMarker(out,state.track.wing.root(2,:),'s','color',colors.wingR);
+%         end
+%         if ~isempty(state.track.leg.root) && ui.tracklegcheck.Value
+%             legline = [state.track.leg.root(1,:) state.track.leg.root(2,:)];
+%             out = insertShape(out,'Line',legline,'color',colors.leg);
+%         end
         
         state.vid.dispframe = out;
     end    
@@ -270,6 +387,15 @@ end
     end
 %% program and play control functions
     function closecleanup(h,~)
+        %%use closerequest function as kludge to allow loading new file
+        %%from the command line or programmatically
+        if h==cf && ~isempty(h.UserData)
+            [p, v, e] = fileparts(h.UserData);
+            h.UserData = [];
+            loadvid([v e],p);
+            return
+        end
+        
         if h==tf && ~closing
             %don't actually close the plot window unless we're actually
             %closing the program
@@ -301,22 +427,57 @@ end
         fly = buildoutputstruct();
         switch b
             case ui.exportbutton
-                badvarname = true;
-                while badvarname %loop til we get a cancellation or acceptable variable name
-                    varname = inputdlg('Enter name for workspace variable:','',[1 35],{'fly'});
-                    if isempty(varname);return;end %cancel button
-                    varname = varname{1};
-                    badvarname = ~strcmp(varname,genvarname(varname));
+                if STANDALONE
+                    savefilename = [fullfile(state.vid.path,state.vid.basename) '_PROC.csv'];
+                    [fn,fp] = uiputfile('*.csv','Export to CSV',savefilename);
+                    if fn==0;return;end
+                    savefilename = fullfile(fp,fn);
+                    tbmat = [];
+                    tbstr = {};
+                    tbmat = [tbmat fly.timestamps'];
+                    tbstr{end+1} = 'Timestamps';
+                    if isfield(fly,'wingL')
+                        tbmat = [tbmat fly.wingL.angle' fly.wingR.angle'];
+                        tbstr{end+1} = 'Wing L Angle';
+                        tbstr{end+1} = 'Wing R Angle';
+                    end
+                    if isfield(fly,'head')
+                        tbmat = [tbmat fly.head.angle'];
+                        tbstr{end+1} = 'Head Angle';
+                    end
+                    if isfield(fly,'abd')
+                        tbmat = [tbmat fly.abd.angle'];
+                        tbstr{end+1} = 'Abd Angle';
+                    end
+                    if isfield(fly,'leg')
+                        tbmat = [tbmat fly.legL.angle' fly.legL.tipX' fly.legL.tipY'];
+                        tbstr{end+1} = 'Leg L Angle';
+                        tbstr{end+1} = 'Leg L Tip X';
+                        tbstr{end+1} = 'Leg L Tip Y';
+                        tbmat = [tbmat fly.legR.angle' fly.legR.tipX' fly.legR.tipY'];
+                        tbstr{end+1} = 'Leg R Angle';
+                        tbstr{end+1} = 'Leg R Tip X';
+                        tbstr{end+1} = 'Leg R Tip Y';
+                    end
+                    tb = array2table(tbmat,'VariableNames',tbstr);
+                    writetable(tb,savefilename);
+                else
+                    badvarname = true;
+                    while badvarname %loop til we get a cancellation or acceptable variable name
+                        varname = inputdlg('Enter name for workspace variable:','',[1 35],{'fly'});
+                        if isempty(varname);return;end %cancel button
+                        varname = varname{1};
+                        badvarname = ~strcmp(varname,genvarname(varname));
+                    end
+                    basevars = evalin('base','who');
+                    if any(contains(basevars,varname))
+                        over=questdlg('Overwrite existing workspace variable?','','Yes','No','No');
+                        if strcmp(over,'No');return;end
+                    end
+                    assignin('base',varname,fly);
                 end
-                basevars = evalin('base','who');
-                if any(contains(basevars,varname))
-                    over=questdlg('Overwrite existing workspace variable?','','Yes','No','No');
-                    if strcmp(over,'No');return;end
-                end
-                assignin('base',varname,fly);
             case ui.savebutton
                 savefilename = [fullfile(state.vid.path,state.vid.basename) '_PROC'];
-%                 savefilename = [savefilename '_flyalyzer' datestr(now,'_yyyymm_hhMMSS_PROC')];
                 uisave('fly',savefilename)
         end
     end
@@ -369,6 +530,7 @@ end
         end
         state.track.leg.show.check = ui.plotlegcheck.Value;
         
+        fly.bodyangle = bodycorrect;
         fly.timestamps = state.track.ts;
         fly.numframes = state.vid.nframes;
         fly.duration = state.vid.nframes/state.vid.fps;
@@ -446,6 +608,156 @@ end
             vidax.Position = [0 0 1 1];
             setframeix(state.vid.ix);
             im = imagesc(vidax,state.vid.dispframe);
+            hold(vidax,'on');
+            axlin = plot(vidax,nan,nan,'Color',colors.axis./255);
+            axrlin = images.roi.Line(vidax,'Color',colors.axis./255,...
+                'MarkerSize',.1,'InteractionsAllowed','translate',...
+                'Visible','off','LineWidth',1);
+            addlistener(axrlin,'MovingROI',@updatetracking);
+
+            wr = state.track.wing.root;
+            wingLpoly = plot(vidax,nan,nan,'Color',colors.wingL./255,'Visible','off');
+            wingLtrk = plot(vidax,nan,nan,'Color',colors.wingL./255,'Visible','off');
+            wingLlin = plot(vidax,[nan nan],[nan nan],'Color',colors.wingL./255,'Visible','off');
+            wingLpts = plot(vidax,nan,nan,'+','Color',colors.wingL./255);
+            wingRpoly = plot(vidax,nan,nan,'Color',colors.wingR./255,'Visible','off');
+            wingRtrk = plot(vidax,nan,nan,'Color',colors.wingR./255,'Visible','off');
+            wingRlin = plot(vidax,[nan nan],[nan nan],'Color',colors.wingR./255,'Visible','off');
+            wingRpts = plot(vidax,nan,nan,'+','Color',colors.wingR./255);
+            
+            wingLrpt = images.roi.Point(vidax,'Color',colors.wingL./255,'Position',[wr(1) wr(3)],'Visible','off','ContextMenu',[]);
+            addlistener(wingLrpt,'MovingROI',@updatewingtracking);
+            wingRrpt = images.roi.Point(vidax,'Color',colors.wingR./255,'Position',[wr(2) wr(4)],'Visible','off','ContextMenu',[]);
+            addlistener(wingRrpt,'MovingROI',@updatewingtracking);
+            wingLcpt = images.roi.Point(vidax,'Color',colors.wingL./255,'Visible','off','ContextMenu',[]);
+            addlistener(wingLcpt,'MovingROI',@updatewingtracking);
+            wingRcpt = images.roi.Point(vidax,'Color',colors.wingR./255,'Visible','off','ContextMenu',[]);
+            addlistener(wingRcpt,'MovingROI',@updatewingtracking);
+            wingLlwr = images.roi.Point(vidax,'Color',colors.wingL./255,'Visible','off','ContextMenu',[]);
+            addlistener(wingLlwr,'MovingROI',@updatewingtracking);
+            wingRlwr = images.roi.Point(vidax,'Color',colors.wingR./255,'Visible','off','ContextMenu',[]);
+            addlistener(wingRlwr,'MovingROI',@updatewingtracking);
+            wingLupr = images.roi.Point(vidax,'Color',colors.wingL./255,'Visible','off','ContextMenu',[]);
+            addlistener(wingLupr,'MovingROI',@updatewingtracking);
+            wingRupr = images.roi.Point(vidax,'Color',colors.wingR./255,'Visible','off','ContextMenu',[]);
+            addlistener(wingRupr,'MovingROI',@updatewingtracking);
+            wingLtpt = images.roi.Point(vidax,'Color',colors.wingL./255,'Visible','off','ContextMenu',[]);
+            addlistener(wingLtpt,'MovingROI',@updatewingtracking);
+            wingRtpt = images.roi.Point(vidax,'Color',colors.wingR./255,'Visible','off','ContextMenu',[]);
+            addlistener(wingRtpt,'MovingROI',@updatewingtracking);
+            wingLmpt = images.roi.Point(vidax,'Color',colors.wingL./255,'Visible','off','ContextMenu',[]);
+            addlistener(wingLmpt,'MovingROI',@processframe);
+            wingRmpt = images.roi.Point(vidax,'Color',colors.wingR./255,'Visible','off','ContextMenu',[]);
+            addlistener(wingRmpt,'MovingROI',@processframe);            
+
+            if ui.trackwingcheck.Value
+                wingLpoly.Visible = 'on';
+                wingLlin.Visible = 'on';
+                wingLtrk.Visible = 'on';
+                wingRpoly.Visible = 'on';
+                wingRlin.Visible = 'on';
+                wingRtrk.Visible = 'on';
+                
+                wingLrpt.Visible = 'on';
+                wingRrpt.Visible = 'on';
+                wingLcpt.Visible = 'on';
+                wingRcpt.Visible = 'on';
+                wingLlwr.Visible = 'on';
+                wingRlwr.Visible = 'on';
+                wingLupr.Visible = 'on';
+                wingRupr.Visible = 'on';
+                wingLtpt.Visible = 'on';
+                wingRtpt.Visible = 'on';
+            end
+
+            headpoly = plot(vidax,nan,nan,'Color',colors.head./255,'Visible','off');
+            headtrk = plot(vidax,nan,nan,'Color',colors.head./255,'Visible','off');
+            headlin = plot(vidax,[nan nan],[nan nan],'Color',colors.head./255,'Visible','off');
+            headorthlin = plot(vidax,[nan nan],[nan nan],'Color',colors.head./255,'Visible','off');
+            headpts = plot(vidax,nan,nan,'+','Color',colors.head./255);
+            hr = state.track.head.root;
+            headpts = plot(vidax,nan,nan,'+','Color',colors.head./255);
+
+            headrpt = images.roi.Point(vidax,'Color',colors.head./255,'Position',hr,'ContextMenu',[]);
+            addlistener(headrpt,'MovingROI',@updateheadtracking);
+            headcpt = images.roi.Point(vidax,'Color',colors.head./255,'Visible','off','ContextMenu',[]);
+            addlistener(headcpt,'MovingROI',@updateheadtracking);
+            headlwr = images.roi.Point(vidax,'Color',colors.head./255,'Visible','off','ContextMenu',[]);
+            addlistener(headlwr,'MovingROI',@updateheadtracking);
+            headupr = images.roi.Point(vidax,'Color',colors.head./255,'Visible','off','ContextMenu',[]);
+            addlistener(headupr,'MovingROI',@updateheadtracking);
+            headtpt = images.roi.Point(vidax,'Color',colors.head./255,'Visible','off','ContextMenu',[]);
+            addlistener(headtpt,'MovingROI',@updateheadtracking);
+            headmpt = images.roi.Point(vidax,'Color',colors.head./255,'Visible','off','ContextMenu',[]);
+            addlistener(headmpt,'MovingROI',@processframe);
+            if ui.trackheadcheck.Value
+                headpoly.Visible = 'on';
+                headtrk.Visible = 'on';
+                headlin.Visible = 'on';
+                headorthlin.Visible = 'on';
+                headcpt.Visible = 'on';
+                headlwr.Visible = 'on';
+                headupr.Visible = 'on';
+                headtpt.Visible = 'on';
+            end
+            
+
+            abdpoly = plot(vidax,nan,nan,'Color',colors.abd./255,'Visible','off');
+            abdtrk = plot(vidax,nan,nan,'Color',colors.abd./255,'Visible','off');
+            abdlin = plot(vidax,[nan nan],[nan nan],'Color',colors.abd./255,'Visible','off');
+            ar = state.track.abd.root;
+            abdpts = plot(vidax,nan,nan,'+','Color',colors.abd./255);
+
+            abdrpt = images.roi.Point(vidax,'Color',colors.abd./255,'Position',ar,'ContextMenu',[]);
+            addlistener(abdrpt,'MovingROI',@updateabdtracking);
+            abdcpt = images.roi.Point(vidax,'Color',colors.abd./255,'Visible','off','ContextMenu',[]);
+            addlistener(abdcpt,'MovingROI',@updateabdtracking);
+            abdlwr = images.roi.Point(vidax,'Color',colors.abd./255,'Visible','off','ContextMenu',[]);
+            addlistener(abdlwr,'MovingROI',@updateabdtracking);
+            abdupr = images.roi.Point(vidax,'Color',colors.abd./255,'Visible','off','ContextMenu',[]);
+            addlistener(abdupr,'MovingROI',@updateabdtracking);
+            abdtpt = images.roi.Point(vidax,'Color',colors.abd./255,'Visible','off','ContextMenu',[]);
+            addlistener(abdtpt,'MovingROI',@updateabdtracking);
+            abdmpt = images.roi.Point(vidax,'Color',colors.abd./255,'Visible','off','ContextMenu',[]);
+            addlistener(abdmpt,'MovingROI',@processframe);
+            if ui.trackabdcheck.Value
+                abdpoly.Visible = 'on';
+                abdlin.Visible = 'on';
+                abdpoly.Visible = 'on';
+                abdtrk.Visible = 'on';
+                abdlin.Visible = 'on';
+                abdcpt.Visible = 'on';
+                abdlwr.Visible = 'on';
+                abdupr.Visible = 'on';
+                abdtpt.Visible = 'on';
+            end
+
+            lr = state.track.leg.root;
+            legpoly = plot(vidax,nan,nan,'Color',colors.leg./255,'Visible','off');
+            legLbox = plot(vidax,nan,nan,'Color',(255-colors.leg)./255,'Visible','off');
+            legRbox = plot(vidax,nan,nan,'Color',(255-colors.leg)./255,'Visible','off');
+%             leglin = plot(vidax,[nan nan],[nan nan],'Color',colors.leg./255,'Visible','off');
+            legpts = plot(vidax,nan,nan,'+','Color',colors.leg./255);
+            leglin = images.roi.Line(vidax,'Color',colors.leg./255,'Position',lr,...
+                'InteractionsAllowed','Translate','LineWidth',1,'MarkerSize',.1,...
+                'Visible','off','ContextMenu',[]);
+            addlistener(leglin,'MovingROI',@updatelegtracking);
+            legcpt = images.roi.Point(vidax,'Color',colors.leg./255,'Visible','off','ContextMenu',[]);
+            addlistener(legcpt,'MovingROI',@updatelegtracking);
+            leglwr = images.roi.Point(vidax,'Color',colors.leg./255,'Visible','off','ContextMenu',[]);
+            addlistener(leglwr,'MovingROI',@updatelegtracking);
+            legupr = images.roi.Point(vidax,'Color',colors.leg./255,'Visible','off','ContextMenu',[]);
+            addlistener(legupr,'MovingROI',@updatelegtracking);
+            if ui.tracklegcheck.Value
+                legpoly.Visible = 'on';
+                leglin.Visible = 'on';
+                legLbox.Visible = 'on';
+                legRbox.Visible = 'on';
+                legcpt.Visible = 'on';
+                leglwr.Visible = 'on';
+                legupr.Visible = 'on';
+            end
+            hold(vidax,'off');
             updatetracking();
             return
         end
@@ -494,6 +806,98 @@ end
         vf.Position = pos;
         vf.Visible = 'on';
         im = imagesc(vidax,state.vid.dispframe);
+        hold(vidax,'on');
+        axlin = plot(vidax,nan,nan,'Color',colors.axis./255);
+        axrlin = images.roi.Line(vidax,'Color',colors.axis./255,...
+            'MarkerSize',.1,'InteractionsAllowed','translate',...
+            'Visible','off','LineWidth',1);
+        addlistener(axrlin,'MovingROI',@updatetracking);
+        wingLpoly = plot(vidax,nan,nan,'Color',colors.wingL./255,'Visible','off');
+        wingLtrk = plot(vidax,nan,nan,'Color',colors.wingL./255,'Visible','off');
+        wingLlin = plot(vidax,[nan nan],[nan nan],'Color',colors.wingL./255,'Visible','off');
+        wingLpts = plot(vidax,nan,nan,'+','Color',colors.wingL./255);
+        wingRpoly = plot(vidax,nan,nan,'Color',colors.wingR./255,'Visible','off');
+        wingRtrk = plot(vidax,nan,nan,'Color',colors.wingR./255,'Visible','off');
+        wingRlin = plot(vidax,[nan nan],[nan nan],'Color',colors.wingR./255,'Visible','off');
+        wingRpts = plot(vidax,nan,nan,'+','Color',colors.wingR./255);
+
+        wingLrpt = images.roi.Point(vidax,'Color',colors.wingL./255,'ContextMenu',[]);
+        addlistener(wingLrpt,'MovingROI',@updatewingtracking);
+        wingRrpt = images.roi.Point(vidax,'Color',colors.wingR./255,'ContextMenu',[]);
+        addlistener(wingRrpt,'MovingROI',@updatewingtracking);
+        wingLcpt = images.roi.Point(vidax,'Color',colors.wingL./255,'ContextMenu',[]);
+        addlistener(wingLcpt,'MovingROI',@updatewingtracking);
+        wingRcpt = images.roi.Point(vidax,'Color',colors.wingR./255,'ContextMenu',[]);
+        addlistener(wingRcpt,'MovingROI',@updatewingtracking);
+        wingLlwr = images.roi.Point(vidax,'Color',colors.wingL./255,'ContextMenu',[]);
+        addlistener(wingLlwr,'MovingROI',@updatewingtracking);
+        wingRlwr = images.roi.Point(vidax,'Color',colors.wingR./255,'ContextMenu',[]);
+        addlistener(wingRlwr,'MovingROI',@updatewingtracking);
+        wingLupr = images.roi.Point(vidax,'Color',colors.wingL./255,'ContextMenu',[]);
+        addlistener(wingLupr,'MovingROI',@updatewingtracking);
+        wingRupr = images.roi.Point(vidax,'Color',colors.wingR./255,'ContextMenu',[]);
+        addlistener(wingRupr,'MovingROI',@updatewingtracking);
+        wingLtpt = images.roi.Point(vidax,'Color',colors.wingL./255,'ContextMenu',[]);
+        addlistener(wingLtpt,'MovingROI',@updatewingtracking);
+        wingRtpt = images.roi.Point(vidax,'Color',colors.wingR./255,'ContextMenu',[]);
+        addlistener(wingRtpt,'MovingROI',@updatewingtracking);
+        wingLmpt = images.roi.Point(vidax,'Color',colors.wingL./255,'Visible','off','ContextMenu',[]);
+        addlistener(wingLmpt,'MovingROI',@processframe);
+        wingRmpt = images.roi.Point(vidax,'Color',colors.wingR./255,'Visible','off','ContextMenu',[]);
+        addlistener(wingRmpt,'MovingROI',@processframe);
+
+        headpoly = plot(vidax,nan,nan,'Color',colors.head./255,'Visible','off');
+        headtrk = plot(vidax,nan,nan,'Color',colors.head./255,'Visible','off');
+        headlin = plot(vidax,[nan nan],[nan nan],'Color',colors.head./255,'Visible','off');
+        headorthlin = plot(vidax,[nan nan],[nan nan],'Color',colors.head./255,'Visible','off');
+        headpts = plot(vidax,nan,nan,'+','Color',colors.head./255);
+        headrpt = images.roi.Point(vidax,'Color',colors.head./255,'ContextMenu',[]);
+        addlistener(headrpt,'MovingROI',@updateheadtracking);
+        headcpt = images.roi.Point(vidax,'Color',colors.head./255,'Visible','off','ContextMenu',[]);
+        addlistener(headcpt,'MovingROI',@updateheadtracking);
+        headlwr = images.roi.Point(vidax,'Color',colors.head./255,'Visible','off','ContextMenu',[]);
+        addlistener(headlwr,'MovingROI',@updateheadtracking);
+        headupr = images.roi.Point(vidax,'Color',colors.head./255,'Visible','off','ContextMenu',[]);
+        addlistener(headupr,'MovingROI',@updateheadtracking);
+        headtpt = images.roi.Point(vidax,'Color',colors.head./255,'Visible','off','ContextMenu',[]);
+        addlistener(headtpt,'MovingROI',@updateheadtracking);
+        headmpt = images.roi.Point(vidax,'Color',colors.head./255,'Visible','off','ContextMenu',[]);
+        addlistener(headmpt,'MovingROI',@processframe);
+
+        abdpoly = plot(vidax,nan,nan,'Color',colors.abd./255,'Visible','off');
+        abdtrk = plot(vidax,nan,nan,'Color',colors.abd./255,'Visible','off');
+        abdlin = plot(vidax,[nan nan],[nan nan],'Color',colors.abd./255,'Visible','off');
+        abdpts = plot(vidax,nan,nan,'+','Color',colors.abd./255);
+        abdrpt = images.roi.Point(vidax,'Color',colors.abd./255,'ContextMenu',[]);
+        addlistener(abdrpt,'MovingROI',@updateabdtracking);
+        abdcpt = images.roi.Point(vidax,'Color',colors.abd./255,'ContextMenu',[]);
+        addlistener(abdcpt,'MovingROI',@updateabdtracking);
+        abdlwr = images.roi.Point(vidax,'Color',colors.abd./255,'ContextMenu',[]);
+        addlistener(abdlwr,'MovingROI',@updateabdtracking);
+        abdupr = images.roi.Point(vidax,'Color',colors.abd./255,'ContextMenu',[]);
+        addlistener(abdupr,'MovingROI',@updateabdtracking);
+        abdtpt = images.roi.Point(vidax,'Color',colors.abd./255,'Visible','off','ContextMenu',[]);
+        addlistener(abdtpt,'MovingROI',@updateabdtracking);
+        abdmpt = images.roi.Point(vidax,'Color',colors.abd./255,'Visible','off','ContextMenu',[]);
+        addlistener(abdmpt,'MovingROI',@processframe);
+
+        legpoly = plot(vidax,nan,nan,'Color',colors.leg./255,'Visible','off');
+%         leglin = plot(vidax,nan,nan,'Color',colors.leg./255,'Visible','off');
+        leglin = images.roi.Line(vidax,'Color',colors.leg./255,...
+            'InteractionsAllowed','Translate','LineWidth',1,'MarkerSize',.1,...
+           'Visible','off');
+        addlistener(leglin,'MovingROI',@updatelegtracking);
+        legLbox = plot(vidax,[nan nan],[nan nan],'Color',(255-colors.leg)./255,'Visible','off');
+        legRbox = plot(vidax,[nan nan],[nan nan],'Color',(255-colors.leg)./255,'Visible','off');
+        legpts = plot(vidax,nan,nan,'+','Color',colors.leg./255);
+        legcpt = images.roi.Point(vidax,'Color',colors.leg./255,'Visible','off','ContextMenu',[]);
+        addlistener(legcpt,'MovingROI',@updatelegtracking);
+        leglwr = images.roi.Point(vidax,'Color',colors.leg./255,'Visible','off','ContextMenu',[]);
+        addlistener(leglwr,'MovingROI',@updatelegtracking);
+        legupr = images.roi.Point(vidax,'Color',colors.leg./255,'Visible','off','ContextMenu',[]);
+        addlistener(legupr,'MovingROI',@updatelegtracking);
+
+        hold(vidax,'off');
         vidax.Position = [0 0 1 1];
         vidax.XTick = [];
         vidax.YTick = [];
@@ -530,7 +934,7 @@ end
         state.track.abd.angle = nan(1,numframes);
         state.track.leg.angle = nan(2,numframes);
         state.track.leg.tip = nan(4,numframes);
-        state.track.ts = linspace(0,numframes/fps,numframes);
+        state.track.ts = linspace(1/fps,numframes/fps,numframes);
        
         keepbody = false;
         if ~isempty(state.track.head.root) && ~isempty(state.track.abd.root)
@@ -545,6 +949,14 @@ end
             state.track.abd.root = [];
             state.track.abd.mask = [];
             state.track.abd.poly = [];
+            axlin.YData = nan;
+            axlin.XData = nan;
+            axrlin.Visible = 'off';
+        else
+            headrpt.Position = state.track.head.root;
+            headrpt.Visible = 'on';
+            abdrpt.Position = state.track.abd.root;
+            abdrpt.Visible = 'on';
         end
         
         state.track.wing.root = [];
@@ -588,6 +1000,7 @@ end
                     end
                 else
                     stop(vtimer);
+                    processframe;
                 end
             case ui.progress
                 setframeix(round(ui.progress.Value));
@@ -608,12 +1021,14 @@ end
         if strcmp(vtimer.Running,'on')
             ui.playpause.String = '||';
         else
-            ui.playpause.String = '>';    
+            ui.playpause.String = '>';
         end
     end
 %% acquisition control functions
     function updateacquisition(a,~)
        c = {ui.trackwingcheck,ui.trackheadcheck,ui.trackabdcheck,ui.tracklegcheck};
+       g = {wingLpoly,headpoly,abdpoly,legpoly};
+       l = {wingLlin,headlin,abdlin,leglin};
        p = {ui.plotwingcheck,ui.plotheadcheck,ui.plotabdcheck,ui.plotlegcheck};       
        t = {ui.wingtab,ui.headtab,ui.abdtab,ui.legtab};
        tabchanged = false;
@@ -623,8 +1038,96 @@ end
                ix = find([c{:}]==a);
                %turn plotting on with tracking by default
                if a.Value == true
-                p{ix}.Value = a.Value;
-                updateacquisition(p{ix},[]);
+                   p{ix}.Value = a.Value;
+                   updateacquisition(p{ix},[]);
+                   g{ix}.Visible = 'on';
+                   l{ix}.Visible = 'on';
+                   if ix==1
+                       wingRpoly.Visible = 'on';
+                       wingRlin.Visible = 'on';
+                       wingLtrk.Visible = 'on';
+                       wingRtrk.Visible = 'on';
+
+                       wingLrpt.Visible = 'on';
+                       wingRrpt.Visible = 'on';
+                       wingLcpt.Visible = 'on';
+                       wingRcpt.Visible = 'on';
+                       wingLlwr.Visible = 'on';
+                       wingRlwr.Visible = 'on';
+                       wingLupr.Visible = 'on';
+                       wingRupr.Visible = 'on';
+                       wingLtpt.Visible = 'on';
+                       wingRtpt.Visible = 'on';
+                   elseif ix == 2
+                       headorthlin.Visible = 'on';
+                       headtrk.Visible = 'on';
+                       headcpt.Visible = 'on';
+                       headlwr.Visible = 'on';
+                       headupr.Visible = 'on';
+                       headtpt.Visible = 'on';
+                   elseif ix == 3
+                       abdtrk.Visible = 'on';
+                       abdcpt.Visible = 'on';
+                       abdlwr.Visible = 'on';
+                       abdupr.Visible = 'on';
+                       abdtpt.Visible = 'on';
+                   elseif ix==4
+                       legLbox.Visible = 'on';
+                       legRbox.Visible = 'on';
+                       legcpt.Visible = 'on';
+                       leglwr.Visible = 'on';
+                       legupr.Visible = 'on';
+                       legpts.Visible = 'on';
+                   end
+               else
+                   g{ix}.Visible = 'off';
+                   l{ix}.Visible = 'off';
+                   if ix==1
+                       wingLtrk.Visible = 'off';
+                       wingLpts.XData = nan;wingLpts.YData = nan;
+                       wingRtrk.Visible = 'off';
+                       wingRpoly.Visible = 'off';
+                       wingRlin.Visible = 'off';
+                       wingRpts.XData = nan;wingRpts.YData = nan;
+
+                       wingLrpt.Visible = 'off';
+                       wingRrpt.Visible = 'off';
+                       wingLcpt.Visible = 'off';
+                       wingRcpt.Visible = 'off';
+                       wingLlwr.Visible = 'off';
+                       wingRlwr.Visible = 'off';
+                       wingLupr.Visible = 'off';
+                       wingRupr.Visible = 'off';
+                       wingLtpt.Visible = 'off';
+                       wingRtpt.Visible = 'off';
+                       wingLmpt.Visible = 'off';
+                       wingRmpt.Visible = 'off';
+                   elseif ix ==2
+                       headorthlin.Visible = 'off';
+                       headtrk.Visible = 'off';
+                       headpts.XData = nan;
+                       headpts.YData = nan;
+                       headcpt.Visible = 'off';
+                       headlwr.Visible = 'off';
+                       headupr.Visible = 'off';
+                       headtpt.Visible = 'off';
+                       headmpt.Visible = 'off';
+                   elseif ix ==3
+                       abdpts.XData = nan;abdpts.YData = nan;
+                       abdcpt.Visible = 'off';
+                       abdlwr.Visible = 'off';
+                       abdupr.Visible = 'off';
+                       abdtrk.Visible = 'off';
+                       abdtpt.Visible = 'off';
+                       abdmpt.Visible = 'off';
+                   elseif ix ==4
+                       legLbox.Visible = 'off';
+                       legRbox.Visible = 'off';
+                       legcpt.Visible = 'off';
+                       leglwr.Visible = 'off';
+                       legupr.Visible = 'off';
+                       legpts.Visible = 'off';
+                   end
                end
            case p
                b = 0;
@@ -640,25 +1143,33 @@ end
            case ui.invertcheck
                state.vid.invertbw = a.Value;
            case ui.headptbutton
-               state.track.head.root=pickpt(1);
+               val = pickpt(1);
+               headrpt.Position = val;
+               state.track.head.root=val;
            case ui.headrootxadjust
                hr = state.track.head.root;
                hr(1) = int16(a.Value);
+               headrpt.Position(1)=hr(1);
                state.track.head.root = hr;
            case ui.headrootyadjust
                hr = state.track.head.root;
                hr(2) = int16(state.vid.height-a.Value);
+               headrpt.Position(2) = hr(2);
                state.track.head.root = hr;
            case ui.abdrootxadjust
                ar = state.track.abd.root;
                ar(1) = int16(a.Value);
+               abdrpt.Position(1) = ar(1);
                state.track.abd.root = ar;
            case ui.abdrootyadjust
                ar = state.track.abd.root;
                ar(2) = int16(state.vid.height-a.Value);
+               abdrpt.Position(2) = ar(2);
                state.track.abd.root = ar;
            case ui.abdptbutton
-               state.track.abd.root=pickpt(1); 
+               val = pickpt(1);
+               abdrpt.Position = val;
+               state.track.abd.root=val;
            case ui.clearheadbutton
               opt = questdlg('Clear Head Data?','Clear Head Data','This Frame','Range','All','This Frame');
               if isempty(opt);return;end
@@ -779,7 +1290,7 @@ end
                 value = str2num(value{1});
                 if value>0
                     state.vid.fps = value;
-                    state.track.ts = linspace(0,state.vid.nframes/value,state.vid.nframes);
+                    state.track.ts = linspace(1/value,state.vid.nframes/value,state.vid.nframes);
                     plotdata;
                     ui.fpsdisplay.String = [num2str(value) 'FPS'];
                 else
@@ -791,22 +1302,183 @@ end
     end
 %% wing tracking ui functions
     function updatewingtracking(w,~)
-        
-        if  any([ui.wingl1adjust,ui.wingl2adjust,ui.wingu1adjust,ui.wingu2adjust]==w)
+
+        if any([wingLcpt,wingRcpt,wingLlwr,wingRlwr,wingLupr,wingRupr]==w)
             boundschanged = true;
-            
-            %kludge to let us wrap past 0/360 
+        elseif  any([ui.wingl1adjust,ui.wingl2adjust,ui.wingu1adjust,ui.wingu2adjust]==w)
+            boundschanged = true;
+
+            %kludge to let us wrap past 0/360
             if w.Value == -1
                 w.Value = 359;
             elseif w.Value == 360
                 w.Value = 0;
             end
-            
         else
             boundschanged = false;
         end
-        
+
         switch w
+            case {wingLrpt,wingRrpt}
+                wp = w.Position;
+                ar = state.track.abd.root;
+                hr = state.track.head.root;
+                ad = pdist2(ar,hr);
+                pd = pdist2 (ar,wp);
+                bang = wrapTo360(state.track.orientation);
+                tang = wrapTo360(atan2d(ar(2)-wp(2),ar(1)-wp(1)));
+                tang = wrapTo360(tang-bang);
+
+                ap = round((sind(tang)*pd)/ad*100);
+                ml = round((cosd(tang)*pd)/ad*100);
+
+                handapadj = {ui.wingap1adjust,ui.wingap2adjust};
+                handmladj = {ui.wingml1adjust,ui.wingml2adjust};
+                handapset = {ui.wingap1setdisplay,ui.wingap2setdisplay};
+                handmlset = {ui.wingml1setdisplay,ui.wingml2setdisplay};
+                switch w
+                    case wingLrpt
+                        cix = 1;
+                        oix = 2;
+                    case wingRrpt
+                        cix = 2;
+                        oix = 1;
+                        ml = -ml;
+                end
+                
+                if ap<0;ap = 0;end
+                if ap>100;ap = 100;end
+                if ml<0;ml = 0;end
+                if ml>100;ml = 100;end
+                state.track.wing.ap(cix) = ap;
+                handapadj{cix}.Value = ap;
+                handapset{cix}.String = [num2str((100-ap)) '% rootAP'];
+                state.track.wing.ml(cix) = ml;
+                handmladj{cix}.Value = ml;
+                handmlset{cix}.String = [num2str((ml)) '% rootML'];
+                if state.track.wing.lock
+                    state.track.wing.ap(oix) = ap;
+                    handapadj{oix}.Value = ap;
+                    handapset{oix}.String = [num2str((100-ap)) '% rootAP'];
+                    state.track.wing.ml(oix) = ml;
+                    handmladj{oix}.Value = ml;
+                    handmlset{oix}.String = [num2str((ml)) '% rootML'];
+                end
+
+            case {wingLcpt,wingRcpt}
+                ui.tabs.SelectedTab = ui.wingtab;
+
+                handladj = {ui.wingl1adjust,ui.wingl2adjust};
+                handuadj = {ui.wingu1adjust,ui.wingu2adjust};
+                handoadj = {ui.wingo1adjust,ui.wingo2adjust};
+                handlset = {ui.wingl1setdisplay,ui.wingl2setdisplay};
+                handuset = {ui.wingu1setdisplay,ui.wingu2setdisplay};
+                handoset = {ui.wingo1setdisplay,ui.wingo2setdisplay};
+
+                switch w
+                    case wingLcpt
+                        cix = 1;
+                        oix = 2;
+                    case wingRcpt
+                        cix = 2;
+                        oix = 1;
+                end
+                
+                wr = state.track.wing.root(cix,:);
+                tang = atan2d(w.Position(2)-wr(2),w.Position(1)-wr(1));
+                tang = wrapTo360(tang);
+                bang = wrapTo360(state.track.orientation);
+
+                uang = state.track.wing.utheta(cix);
+                lang = state.track.wing.ltheta(cix);
+                hspan = abs(wrapTo180(uang-lang)/2);
+                uang = wrapTo360(round(tang+hspan-bang));
+                lang = wrapTo360(round(tang-hspan-bang));
+
+                o = round(pdist2(w.Position,wr));
+                state.track.wing.utheta(cix) = uang;
+                handuadj{cix}.Value = uang;
+                handuset{cix}.String = [num2str(360-uang) '° upper'];
+                state.track.wing.ltheta(cix) = lang;
+                handladj{cix}.Value = lang;
+                handlset{cix}.String = [num2str(360-lang) '° lower'];
+                state.track.wing.offset(cix) = o;
+                handoadj{cix}.Value = o;
+                handoset{cix}.String = [num2str(o) 'px offset'];
+                if state.track.wing.lock
+                    L2 = wrapTo360(180+(360-uang));
+                    U2 = wrapTo360(180+(360-lang));
+                    state.track.wing.utheta(oix) = U2;
+                    handuadj{oix}.Value = U2;
+                    handuset{oix}.String = [num2str(360-U2) '° upper'];
+                    state.track.wing.ltheta(oix) = L2;
+                    handladj{oix}.Value = L2;
+                    handlset{oix}.String = [num2str(360-L2) '° lower'];
+                    state.track.wing.offset(oix) = o;
+                    handoadj{oix}.Value = o;
+                    handoset{oix}.String = [num2str(o) 'px offset'];
+                end
+            case {wingLlwr, wingLupr, wingRlwr, wingRupr}
+                ui.tabs.SelectedTab = ui.wingtab;
+                
+                handladj = {ui.wingl1adjust,ui.wingl2adjust};
+                handuadj = {ui.wingu1adjust,ui.wingu2adjust};
+                handeadj = {ui.winge1adjust,ui.winge2adjust};
+                handlset = {ui.wingl1setdisplay,ui.wingl2setdisplay};
+                handuset = {ui.wingu1setdisplay,ui.wingu2setdisplay};
+                handeset = {ui.winge1setdisplay,ui.winge2setdisplay};
+                switch w
+                    case {wingLlwr, wingLupr}
+                        cix = 1;
+                        oix = 2;
+                        c = wingLcpt.Position;
+                    case {wingRlwr, wingRupr}
+                        cix = 2;
+                        oix = 1;
+                        c = wingRcpt.Position;
+                end
+                p = w.Position;
+                wr = state.track.wing.root(cix,:);
+                bang = wrapTo360(state.track.orientation);
+                tang = wrapTo360(atan2d(p(2)-wr(2),p(1)-wr(1)));
+                
+                mang = wrapTo360(atan2d(c(2)-wr(2),c(1)-wr(1)));
+                hspan = abs(wrapTo180(tang-mang));
+
+                if hspan<5
+                    hspan = 5;
+                end
+                lang = round(wrapTo360(mang-hspan-bang));
+                uang = round(wrapTo360(mang+hspan-bang));
+
+                state.track.wing.ltheta(cix) = lang;
+                state.track.wing.utheta(cix) = uang;
+                
+                e = pdist2(p,wr);
+                o = state.track.wing.offset(cix);
+                e = round(e-o);
+                if e<0;e = 0;end
+                state.track.wing.extent(cix) = e;
+                handeset{cix}.String = [num2str(e) 'px extent'];
+                handeadj{cix}.Value = e;
+                handuset{cix}.String = [num2str(360-uang) '° upper'];
+                handuadj{cix}.Value = uang;
+                handlset{cix}.String = [num2str(360-lang) '° lower'];
+                handladj{cix}.Value = lang;
+                if state.track.wing.lock
+                    L2 = wrapTo360(180+(360-uang));
+                    U2 = wrapTo360(180+(360-lang));
+                    state.track.wing.utheta(oix) = U2;
+                    handuadj{oix}.Value = U2;
+                    handuset{oix}.String = [num2str(360-U2) '° upper'];
+                    state.track.wing.ltheta(oix) = L2;
+                    handladj{oix}.Value = L2;
+                    handlset{oix}.String = [num2str(360-L2) '° lower'];
+                    state.track.wing.extent(oix) = e;
+                    handeadj{oix}.Value = e;
+                    handeset{oix}.String = [num2str(e) 'px extent'];
+                end
+
             case ui.overlaywingscheck
                 state.track.wing.show.thresh = w.Value;
             case ui.lockwingscheck
@@ -865,16 +1537,40 @@ end
             case ui.wingap2adjust
                 state.track.wing.ap(2) = w.Value;
                 ui.wingap2setdisplay.String = [num2str(100-w.Value) '% rootAP'];
-            case ui.wingt1adjust
-                state.track.wing.thresh(1) = w.Value;
+                
+            case {ui.wingt1adjust wingLtpt}
+                if w==ui.wingt1adjust
+                    t=w.Value;
+                else
+                    ui.tabs.SelectedTab = ui.wingtab;
+                    trk = [wingLtrk.XData; wingLtrk.YData]';
+                    [~,t] = min(pdist2(trk,w.Position));
+                    t = round((t-1)/100,2);
+                    ui.wingt1adjust.Value = t;
+                end
+                state.track.wing.thresh(1) = t;
                 if state.track.wing.lock 
-                    state.track.wing.thresh(2) = w.Value;
-                    ui.wingt2adjust.Value = w.Value;
+                    state.track.wing.thresh(2) = t;
+                    ui.wingt2adjust.Value = t;
                     ui.wingt2setdisplay.String = [num2str(state.track.wing.thresh(2)*100) '% thresh'];
                 end
                 ui.wingt1setdisplay.String = [num2str(state.track.wing.thresh(1)*100) '% thresh'];
-            case ui.wingt2adjust
-                state.track.wing.thresh(2) = w.Value;
+            case {ui.wingt2adjust wingRtpt}
+                if w==ui.wingt2adjust
+                    t=w.Value;
+                else
+                    ui.tabs.SelectedTab = ui.wingtab;
+                    trk = [wingRtrk.XData; wingRtrk.YData]';
+                    [~,t] = min(pdist2(trk,w.Position));
+                    t = round((t-1)/100,2);
+                    ui.wingt2adjust.Value = t;
+                end
+                state.track.wing.thresh(2) = t;
+                if state.track.wing.lock 
+                    state.track.wing.thresh(1) = t;
+                    ui.wingt1adjust.Value = t;
+                    ui.wingt1setdisplay.String = [num2str(state.track.wing.thresh(2)*100) '% thresh'];
+                end
                 ui.wingt2setdisplay.String = [num2str(state.track.wing.thresh(2)*100) '% thresh'];
             case ui.wingo1adjust
                 state.track.wing.offset(1) = w.Value;
@@ -963,24 +1659,148 @@ end
         rt = state.track.wing.utheta+state.track.orientation;
         w = state.vid.width;
         h = state.vid.height;
-        [mask1, poly1] = make_arc_mask(wr(1),wr(3),r1(1),r2(1),lt(1),rt(1),w,h);
-        [mask2, poly2] = make_arc_mask(wr(2),wr(4),r1(2),r2(2),lt(2),rt(2),w,h);
-        state.track.wing.mask = logical(zeros(h,w,2));
+        [mask1, poly1,ctr1,lwr1,upr1,trk1] = make_arc_mask(wr(1),wr(3),r1(1),r2(1),lt(1),rt(1),w,h);
+        [mask2, poly2,ctr2,lwr2,upr2,trk2] = make_arc_mask(wr(2),wr(4),r1(2),r2(2),lt(2),rt(2),w,h);
+        trk2 = flipud(trk2);
+
+        state.track.wing.mask = false(h,w,2);
         state.track.wing.mask(:,:,1) = mask1;
         state.track.wing.mask(:,:,2) = mask2;
         state.track.wing.poly = [poly1;poly2];
+        wingLrpt.Position = [wr(1) wr(3)];
+        wingLcpt.Position = ctr1;
+        wingLlwr.Position = lwr1;
+        wingLupr.Position = upr1;
+        wingLpoly.XData = [poly1(1:2:end) poly1(1)];
+        wingLpoly.YData = [poly1(2:2:end) poly1(2)];
+        wingLlin.XData(1) = wr(1);wingLlin.YData(1) = wr(3);
+        wingLtrk.XData = trk1(:,1);
+        wingLtrk.YData = trk1(:,2);
+        tix = round(state.track.wing.thresh(1)*100)+1;
+        wingLtpt.Position = trk1(tix,:);
+
+        wingRrpt.Position = [wr(2) wr(4)];
+        wingRcpt.Position = ctr2;
+        wingRlwr.Position = lwr2;
+        wingRupr.Position = upr2;
+        wingRpoly.XData = [poly2(1:2:end) poly2(1)];
+        wingRpoly.YData = [poly2(2:2:end) poly2(2)];
+        wingRlin.XData(1) = wr(2);wingRlin.YData(1) = wr(4);
+        wingRtrk.XData = trk2(:,1);
+        wingRtrk.YData = trk2(:,2);
+        tix = round(state.track.wing.thresh(2)*100)+1;
+        wingRtpt.Position = trk2(tix,:);
     end
 %% head tracking ui functions
     function updateheadtracking(h,~)
         switch h
+            case headrpt
+                state.track.head.root = round(h.Position,1);
+            case headcpt
+                ui.tabs.SelectedTab = ui.headtab;
+                hr = state.track.head.root;
+                tang = atan2d(h.Position(2)-hr(2),h.Position(1)-hr(1));
+                tang = wrapTo360(tang);
+                bang = wrapTo360(state.track.orientation);
+
+                uang = state.track.head.utheta;
+                lang = state.track.head.ltheta;
+                hspan = abs(wrapTo180(uang-lang)/2);
+                uang = wrapTo360(round(tang+hspan-bang));
+                lang = wrapTo360(round(tang-hspan-bang));
+
+                if (uang > 0 && uang <180) && hspan>45
+                    uang = 360;
+                    lang = 360-2*hspan;
+                elseif lang <180 && hspan>45
+                    lang = 180;
+                    uang = 180+2*hspan;
+                elseif lang>270
+                    lang = 270;
+                    uang = 270+2*hspan;
+                elseif uang<270
+                    uang = 270;
+                    lang = 270-2*hspan;
+                end
+                state.track.head.utheta = uang;
+                state.track.head.ltheta = lang;
+                ui.headuadjust.Value = uang;
+                ui.headladjust.Value = lang;
+                uang = wrapTo360(uang);
+                lang = wrapTo360(lang);
+
+                o = round(pdist2(h.Position,state.track.head.root));
+                ui.headosetdisplay.String = [num2str(o) 'px offset'];
+                ui.headusetdisplay.String = [num2str(360-uang) '° upper'];
+                ui.headlsetdisplay.String = [num2str(360-lang) '° lower'];
+                state.track.head.offset = o;
+                ui.headoadjust.Value = o;
+            case {headlwr headupr}
+                ui.tabs.SelectedTab = ui.headtab;
+                p = h.Position;
+                c = headcpt.Position;
+                hr = state.track.head.root;
+                bang = wrapTo360(state.track.orientation);
+                tang = wrapTo360(atan2d(p(2)-hr(2),p(1)-hr(1)));
+                
+                mang = wrapTo360(atan2d(c(2)-hr(2),c(1)-hr(1)));
+                hspan = abs(wrapTo180(tang-mang));
+                if hspan>90
+                    uang = 360;
+                    lang = 180;
+                else
+                    if hspan<5
+                        hspan = 5;
+                    end
+                    lang = round(wrapTo360(mang-hspan-bang));
+                    uang = round(wrapTo360(mang+hspan-bang));
+                    if lang>ui.headladjust.Max  
+                        lang = ui.headladjust.Max;
+                        uang = ui.headuadjust.Min+2*hspan;
+                    elseif uang < ui.headuadjust.Min
+                        lang = ui.headladjust.Max-2*hspan;
+                        uang = ui.headuadjust.Min;
+                    end
+                    if uang >360
+                        uang = 360;
+                        lang = 360-2*hspan;
+                    elseif lang <180
+                        lang = 180;
+                        uang = 180+2*hspan;
+                    end
+                end
+
+                state.track.head.ltheta = lang;
+                state.track.head.utheta = uang;
+                
+                e = pdist2(h.Position,state.track.head.root);
+                o = state.track.head.offset;
+                e = round(e-o);
+                if e<0;e = 0;end
+                state.track.head.extent = e;
+                ui.headesetdisplay.String = [num2str(e) 'px extent'];
+                ui.headeadjust.Value = e;
+                ui.headusetdisplay.String = [num2str(360-uang) '° upper'];
+                ui.headuadjust.Value = uang;
+                ui.headlsetdisplay.String = [num2str(360-lang) '° lower'];
+                ui.headladjust.Value = lang;
             case ui.headmethoddropdown
                 state.track.head.method = h.Value;
             case ui.headnormdropdown
                 state.track.head.norm = h.Value;
             case ui.overlayheadcheck
                 state.track.head.show.thresh = h.Value;
-            case ui.headtadjust
-                t=h.Value;
+            case {ui.headtadjust headtpt}
+                if h==ui.headtadjust
+                    t=h.Value;
+                else
+                    ui.tabs.SelectedTab = ui.headtab;
+                    trk = [headtrk.XData; headtrk.YData]';
+                    [~,t] = min(pdist2(trk,h.Position));
+                    t = round((t-1)/100,2);
+%                     h.Position = trk(tix,:);
+                    ui.headtadjust.Value = t;
+                end
                 ui.headtsetdisplay.String = [num2str(t*100) '% thresh'];
                 state.track.head.thresh = t;
             case ui.headoadjust
@@ -1014,19 +1834,128 @@ end
         rt = state.track.head.utheta+state.track.orientation;
         w = state.vid.width;
         h = state.vid.height;
-        [mask, poly] = make_arc_mask(hr(1),hr(2),r1,r2,lt,rt,w,h);
+        [mask,poly,ctr,lwr,upr,trk] = make_arc_mask(hr(1),hr(2),r1,r2,lt,rt,w,h);
+        headcpt.Position = ctr;
+        headlwr.Position = lwr;
+        headupr.Position = upr;
         state.track.head.mask = mask;
         state.track.head.poly = poly;
+        headpoly.XData = [poly(1:2:end) poly(1)];
+        headpoly.YData = [poly(2:2:end) poly(2)];
+        headtrk.XData = trk(:,1);
+        headtrk.YData = trk(:,2);
+        tix = round(state.track.head.thresh*100)+1;
+        headtpt.Position = trk(tix,:);
+        headlin.XData(1) = hr(1); headlin.YData(1) = hr(2);
     end
 %% abdomen tracking ui functions    
     function updateabdtracking(a,~)
         switch a
+            case abdrpt
+                state.track.abd.root = round(a.Position,1);
+            case abdcpt
+                ui.tabs.SelectedTab = ui.abdtab;
+                ar = state.track.abd.root;
+                tang = atan2d(a.Position(2)-ar(2),a.Position(1)-ar(1));
+                tang = wrapTo360(tang);
+                bang = wrapTo360(state.track.orientation);
+
+                uang = state.track.abd.utheta;
+                lang = state.track.abd.ltheta;
+                hspan = abs(wrapTo180(uang-lang)/2);
+                uang = wrapTo360(round(tang+hspan-bang));
+                lang = wrapTo360(round(tang-hspan-bang));
+
+                if lang > 180 && hspan>45
+                    lang = 0;
+                    uang = 2*hspan;
+                elseif uang > 180 && hspan>45
+                    uang = 180;
+                    lang = uang-2*hspan;
+                elseif lang>90
+                    lang = 90;
+                    uang = 90+2*hspan;
+                elseif uang<90
+                    uang = 90;
+                    lang = 90-2*hspan;
+                end
+                state.track.abd.utheta = uang;
+                state.track.abd.ltheta = lang;
+                ui.abduadjust.Value = uang;
+                ui.abdladjust.Value = lang;
+                uang = wrapTo360(uang);
+                lang = wrapTo360(lang);
+
+                o = round(pdist2(a.Position,state.track.abd.root));
+                ui.abdosetdisplay.String = [num2str(o) 'px offset'];
+                ui.abdusetdisplay.String = [num2str(360-uang) '° upper'];
+                ui.abdlsetdisplay.String = [num2str(360-lang) '° lower'];
+                state.track.abd.offset = o;
+                ui.abdoadjust.Value = o;
+            case {abdlwr abdupr}
+                ui.tabs.SelectedTab = ui.abdtab;
+                p = a.Position;
+                c = abdcpt.Position;
+                ar = state.track.abd.root;
+                bang = wrapTo360(state.track.orientation);
+                tang = wrapTo360(atan2d(p(2)-ar(2),p(1)-ar(1)));
+                
+                mang = wrapTo360(atan2d(c(2)-ar(2),c(1)-ar(1)));
+                hspan = abs(wrapTo180(tang-mang));
+                if hspan<5
+                    hspan = 5;
+                end
+                lang = round(wrapTo360(mang-hspan-bang));
+                uang = round(wrapTo360(mang+hspan-bang));
+
+                if hspan>90
+                    uang = 180;
+                    lang = 0;
+                else
+                    if lang > 270
+                        lang = 0;
+                        uang = 2*hspan;
+                    elseif uang > 180
+                        uang = 180;
+                        lang = 180-2*hspan;
+                    end
+                    if lang>ui.abdladjust.Max
+                        lang = ui.abdladjust.Max;
+                        uang = ui.abduadjust.Min+2*hspan;
+                    elseif uang < ui.abduadjust.Min
+                        lang = ui.abdladjust.Max-2*hspan;
+                        uang = ui.abduadjust.Min;
+                    end
+                end
+
+                state.track.abd.ltheta = lang;
+                state.track.abd.utheta = uang;
+                
+                e = pdist2(a.Position,state.track.abd.root);
+                o = state.track.abd.offset;
+                e = round(e-o);
+                if e<0;e = 0;end
+                state.track.abd.extent = e;
+                ui.abdesetdisplay.String = [num2str(e) 'px extent'];
+                ui.abdeadjust.Value = e;
+                ui.abdusetdisplay.String = [num2str(360-uang) '° upper'];
+                ui.abduadjust.Value = uang;
+                ui.abdlsetdisplay.String = [num2str(360-lang) '° lower'];
+                ui.abdladjust.Value = lang;
             case ui.abdnormdropdown
                 state.track.abd.norm = a.Value;
             case ui.overlayabdcheck
                 state.track.abd.show.thresh = a.Value;
-            case ui.abdtadjust
-                t=a.Value;
+            case {ui.abdtadjust abdtpt}
+                if a==ui.abdtadjust
+                    t=a.Value;
+                else
+                    ui.tabs.SelectedTab = ui.abdtab;
+                    trk = [abdtrk.XData; abdtrk.YData]';
+                    [~,t] = min(pdist2(trk,a.Position));
+                    t = round((t-1)/100,2);
+                    ui.abdtadjust.Value = t;
+                end
                 ui.abdtsetdisplay.String = [num2str(t*100) '% thresh'];
                 state.track.abd.thresh = t;
             case ui.abdoadjust
@@ -1060,13 +1989,80 @@ end
         rt = state.track.abd.utheta+state.track.orientation;
         w = state.vid.width;
         h = state.vid.height;
-        [mask, poly] = make_arc_mask(ar(1),ar(2),r1,r2,lt,rt,w,h);
+        [mask, poly,ctr,lwr,upr,trk] = make_arc_mask(ar(1),ar(2),r1,r2,lt,rt,w,h);
+        abdcpt.Position = ctr;
+        abdlwr.Position = lwr;
+        abdupr.Position = upr;
         state.track.abd.mask = mask;
         state.track.abd.poly = poly;
+        abdpoly.XData = [poly(1:2:end) poly(1)];
+        abdpoly.YData = [poly(2:2:end) poly(2)];
+        abdtrk.XData = trk(:,1);
+        abdtrk.YData = trk(:,2);
+        tix = round(state.track.abd.thresh*100)+1;
+        abdtpt.Position = trk(tix,:);
+        abdlin.XData(1) = ar(1); abdlin.YData(1) = ar(2);
     end
 %% leg tracking ui functions
     function updatelegtracking(lg,~)
         switch lg
+            case leglin
+                ui.tabs.SelectedTab = ui.legtab;
+
+                lp = mean(lg.Position);
+                ar = state.track.abd.root;
+                hr = state.track.head.root;
+                ad = pdist2(ar,hr);
+                pd = pdist2 (ar,lp);
+                bang = wrapTo360(state.track.orientation);
+                tang = wrapTo360(atan2d(ar(2)-lp(2),ar(1)-lp(1)));
+                tang = wrapTo360(tang-bang);
+
+                ap = round((sind(tang)*pd)/ad*100);
+                if ap>100;ap = 100;end
+                if ap<0;ap = 0;end
+                state.track.leg.ap = ap;
+                ui.legapadjust.Value = ap/100;
+                ui.legapsetdisplay.String = [num2str(100-ap) '% AP'];
+                
+            case legcpt
+                ui.tabs.SelectedTab = ui.legtab;
+                lr = mean(state.track.leg.root);
+
+                o = round(pdist2(lg.Position,lr)/1.75);
+                ui.legosetdisplay.String = [num2str(o) 'px offset'];
+                state.track.leg.offset = o;
+                ui.legoadjust.Value = o;
+
+            case {leglwr legupr}
+                ui.tabs.SelectedTab = ui.legtab;
+                p = lg.Position;
+                c = legcpt.Position;
+                lr = mean(state.track.leg.root);
+                lutpoly = state.track.leg.lut;
+                plut = [lutpoly(1:2:202)' lutpoly(2:2:202)'];
+                dlut = pdist2(lr,plut);
+                [~,pix] = min(pdist2(p,plut));
+                spanlut = linspace(0,90,50);
+                spanlut = [fliplr(spanlut) 0 spanlut];
+                span = round(spanlut(pix));
+                if span>=90
+                    state.track.leg.ltheta = 180;
+                    state.track.leg.utheta = 360;
+                else
+                    state.track.leg.ltheta = 270+span;
+                    state.track.leg.utheta = 270-span;
+                end
+                ui.legspnsetdisplay.String = [num2str(span*2) '° span'];
+                ui.legspnadjust.Value = span*2;
+                e = pdist2(lg.Position,lr);
+                o = dlut(pix);
+                e = round(e-o);
+                if e<0;e = 0;end
+                if e>ui.legeadjust.Max;e = ui.legeadjust.Max;end
+                state.track.leg.extent = e;
+                ui.legeadjust.Value = e;
+                ui.legesetdisplay.String = [num2str(e) 'px extent'];
             case ui.legnormdropdown
                 state.track.leg.norm = lg.Value;
             case ui.overlaylegcheck
@@ -1102,6 +2098,10 @@ end
         updatetracking();
     end
     function makelegmask()
+        lr = state.track.leg.root;
+        leglin.Position = lr;
+%         leglin.XData = [lr(1) lr(2)];
+%         leglin.YData = [lr(3) lr(4)];
         lr = double(mean(state.track.leg.root));
         r1 = state.track.leg.offset;
         r2 = state.track.leg.offset+state.track.leg.extent;
@@ -1110,13 +2110,23 @@ end
         w = state.vid.width;
         h = state.vid.height;
         shift = state.track.orientation;
-        [mask, poly] = make_arc_mask(lr(1),lr(2),r1,r2,lt,rt,w,h,1,1.75,shift);
+        [mask, poly, ctr, lwr, upr] = make_arc_mask(lr(1),lr(2),r1,r2,lt,rt,w,h,1,1.75,shift);
+        [~,lutpoly] = make_arc_mask(lr(1),lr(2),r1,r2,180+shift,360+shift,w,h,1,1.75,shift);        
         state.track.leg.mask = mask;
         state.track.leg.poly = poly;
+        legpoly.XData = [poly(1:2:end) poly(1)];
+        legpoly.YData = [poly(2:2:end) poly(2)];
+        legcpt.Position = ctr;
+        leglwr.Position = lwr;
+        legupr.Position = upr;
+
         bordermask = bwmorph(mask,'remove');
         bordermask([1 h],:)=0;
         bordermask(:,[1 w])=0;
         state.track.leg.borderidx = find(imdilate(bordermask,ones(5)));
+
+        state.track.leg.lut = lutpoly;
+%         state.track.leg.lut = [lutpoly(1:2:202)' lutpoly(2:2:202)'];
     end
 %% plotting function
     function plotdata()
@@ -1278,6 +2288,7 @@ end
         state.track.leg.root = [];
         state.track.leg.mask = [];
         state.track.leg.poly = [];
+        state.track.leg.lut = [];
         state.track.leg.clearborder = true;
         state.track.leg.borderidx = [];
         state.track.leg.ap  = 50;
@@ -1321,8 +2332,13 @@ end
             ui = struct;
         end
         
+        if STANDALONE
+            expstr = 'Export to CSV';
+        else
+            expstr = 'Export to Workspace';
+        end
         ui.exportbutton = uicontrol(cf,'Style','pushbutton','String',...
-            'Export to Workspace','Position',[0 0 125 45],'Callback',@savedata);
+            expstr,'Position',[0 0 125 45],'Callback',@savedata);
         
         ui.savebutton = uicontrol(cf,'Style','pushbutton','String',...
             'Save to Disk','Position',[125 0 125 45],'Callback',@savedata);
@@ -1524,11 +2540,11 @@ end
             'Position',[148 110 95 20],'Enable','off');
         ui.wingo1adjust = uicontrol(ui.wingtab,'Style', 'slider',...
             'Value',state.track.wing.offset(1),'Position', [3 110 20 20],...
-            'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
+            'Min',0,'Max',500,'SliderStep',[1/500, 1/50],...
             'Callback',@updatewingtracking);
         ui.wingo2adjust = uicontrol(ui.wingtab,'Style', 'slider',...
             'Value',state.track.wing.offset(2),'Position', [128 110 20 20],...
-            'Min',0,'Max',200,'SliderStep',[1/200, 1/20],...
+            'Min',0,'Max',500,'SliderStep',[1/500, 1/50],...
             'Callback',@updatewingtracking);
         
         ui.winge1setdisplay = uicontrol(ui.wingtab,'Style','edit','String',...
@@ -2004,7 +3020,7 @@ end
     end
 
     %function called when tracking parameters change
-    function updatetracking()
+    function updatetracking(h,~)
         if ~isempty(state.track.head.root)
             hr = state.track.head.root;
             ui.headrootxadjust.Enable = 'on';
@@ -2022,12 +3038,23 @@ end
             ui.abdsetdisplay.String = ['x=' num2str(ar(1)) ' y=' num2str(ar(2))];            
         end
         if ~isempty(state.track.abd.root) && ~isempty(state.track.head.root)
+            axrlin.Visible = 'on';
             ui.trackpanel.Visible = 'on';
             if ~isempty(findobj('Parent',ui.tabs))
                 ui.tabs.Visible = 'on';
             else
                 ui.tabs.Visible = 'off';
-            end           
+            end
+            if nargin>1 %movement of body axis
+                np = mean(h.Position);
+                tp = mean([state.track.head.root; state.track.abd.root]);
+                dx = tp(1)-np(1);
+                dy = tp(2)-np(2);
+                state.track.head.root = round(state.track.head.root-[dx dy],1);
+                state.track.abd.root = round(state.track.abd.root-[dx dy],1);
+                headrpt.Position = state.track.head.root;
+                abdrpt.Position = state.track.abd.root;
+            end
             calcbodypoints;
             makewingmask;
             makeheadmask;
@@ -2047,6 +3074,17 @@ end
         hr = double(state.track.head.root);
         state.track.orientation = atan2d(ar(2)-hr(2),ar(1)-hr(1))-90;
         d = pdist2(hr,ar,'euclidean'); 
+
+        %draw body axis
+        angle = state.track.orientation;
+        r = sqrt(state.vid.width^2 + state.vid.height^2);
+        pt1(1) = hr(1)-r*sind(angle);
+        pt1(2) = hr(2)+r*cosd(angle);
+        pt2(1) = ar(1)+r*sind(angle);
+        pt2(2) = ar(2)-r*cosd(angle);
+        axlin.XData = [pt1(1) pt2(1)];
+        axlin.YData = [pt1(2) pt2(2)];
+        axrlin.Position = [hr; ar];
         
         %get wingroots
         ap = round(state.track.wing.ap*d*.01);
@@ -2315,19 +3353,25 @@ end
 %         end
     end
     %make ROI function
-    function [mask, poly] = make_arc_mask(centx,centy,r1,r2,theta1,theta2,w,h,majax,minax,shift)
+    function [mask, poly,ctr,lwr,upr,trk] = make_arc_mask(centx,centy,r1,r2,theta1,theta2,w,h,majax,minax,shift)
         %assume a circle if no major/minor axes provided
         if nargin<11;shift = 0;end
         if nargin<10;minax=1;end
         if nargin<9;majax=1;end
         
-        angle = linspace(theta1,theta2);
+        rTo = r2+5;
+        rTi = r1-5;
+        angle = linspace(theta1,theta2,101);
         
         x1 = majax*r1*cosd(angle-shift);
         x2 = majax*r2*cosd(angle-shift);
+        xTo = majax*rTo*cosd(angle-shift);
+        xTi = majax*rTi*cosd(angle-shift);
         
         y1 = minax*r1*sind(angle-shift);
         y2 = minax*r2*sind(angle-shift);
+        yTo = majax*rTo*sind(angle-shift);
+        yTi = majax*rTi*sind(angle-shift);
         
         %make and apply transformation matrix
         R  = [cosd(shift) -sind(shift); ...
@@ -2338,6 +3382,13 @@ end
         rCoords = R*[x2 ; y2];
         x2 = rCoords(1,:);
         y2 = rCoords(2,:);
+        rCoords = R*[xTo ; yTo];
+        xTo = rCoords(1,:);
+        yTo = rCoords(2,:);
+        rCoords = R*[xTi ; yTi];
+        xTi = rCoords(1,:);
+        yTi = rCoords(2,:);
+
 
         %make intervening points between two arcs for the end caps
         x3 = (x1(1) + x2(1))/2;
@@ -2352,7 +3403,21 @@ end
         xvals = xvals+centx;
         yvals = yvals+centy;
         mask = poly2mask(xvals,yvals,h,w);
-        
+
+        xTi = xTi + centx;
+        xTo = xTo + centx;
+        yTi = yTi + centy;
+        yTo = yTo + centy;
+        if any(xTo<1 | xTo>w) || any(yTo<1 | yTo>h)
+            trk = [xTi; yTi]';
+        else
+            trk = [xTo; yTo]';
+        end
+
+        ctr = [xvals(51) yvals(51)];
+        lwr = [xvals(103) yvals(103)];
+        upr = [xvals(end-1) yvals(end-1)];
+
         %poly2mask wants the polygon as two vectors of x and y points but
         %insertshape wants it as one vector of sequential x and y pairs so
         %we'll output the poly in a form friendly for that.
@@ -2374,6 +3439,7 @@ end
     end
     %overlay threshold onto image
     function rgb = overlaythresh(rgb,color,bw)
+        if any(size(bw) ~= size(rgb(:,:,1)));return;end
         rgb = imoverlay(rgb,bw,color./255);
     end
     %make colors
@@ -2401,6 +3467,7 @@ end
         colorschemes(i).axis = [0 0 255];
         colorschemes(i).name = 'RGB'; 
         
+        %Inverted default scheme
         i = i+1;
         colorschemes(i).head = 255-[55 126 184];
         colorschemes(i).abd = 255-[152 78 163];
